@@ -19,6 +19,8 @@ SET(LIBV8
 file(GLOB V8_LIB_SOURCES src/v8/*.cc)
 add_library(v8lib ${V8_LIB_SOURCES})
 
+add_subdirectory(src/util)
+
 add_executable(bench src/main.cc)
-target_link_libraries(bench v8lib ${LIBV8})
+target_link_libraries(bench util v8lib ${LIBV8})
 set_target_properties(bench PROPERTIES LINK_FLAGS "-fuse-ld=lld")
