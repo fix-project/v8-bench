@@ -7,6 +7,7 @@ include(etc/build_type.cmake)
 add_compile_options(-Wall -Wpedantic -Werror -Wextra)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -DV8_COMPRESS_POINTERS -DV8_ENABLE_SANDBOX -DV8_ENABLE_CHECKS")
 
+include_directories(SYSTEM "${PROJECT_SOURCE_DIR}/third-party")
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/v8/include)
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/v8)
 

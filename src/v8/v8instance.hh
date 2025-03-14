@@ -4,7 +4,6 @@
 #include <v8-context.h>
 #include <v8-persistent-handle.h>
 #include <v8-primitive.h>
-#include <vector>
 
 struct IsolateWrapper {
   v8::Isolate *isolate_;
@@ -30,7 +29,7 @@ public:
   // Comsume a wasm module instance and invoke the specified function
   v8::UniquePersistent<v8::Value>
   invoke(v8::UniquePersistent<v8::Object> &&module_instance, const char *func,
-         std::vector<int> args);
+         std::span<const int> args);
 
   uint32_t to_uint32(v8::UniquePersistent<v8::Value> &&handle);
 };

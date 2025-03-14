@@ -39,7 +39,7 @@ UniquePersistent<Object> V8Instance::instantiate() {
 
 UniquePersistent<Value>
 V8Instance::invoke(UniquePersistent<Object> &&module_instance, const char *func,
-                   vector<int> args) {
+                   span<const int> args) {
   Isolate *isolate = isolate_.isolate_;
   HandleScope scope(isolate);
 
