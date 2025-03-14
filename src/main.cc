@@ -1,6 +1,8 @@
 #include <memory>
 #include <stdlib.h>
 
+#include "mmap.hh"
+#include "option-parser.hh"
 #include "v8/v8runner.hh"
 
 using args_type = v8::Local<v8::Value>[];
@@ -19,14 +21,30 @@ class AddRequest {
     }
 };
 
-int main(int, char *argv[]) {
-  std::vector<uint8_t> wasmbin{
-      0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x07, 0x01,
-      0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f, 0x03, 0x02, 0x01, 0x00, 0x07,
-      0x07, 0x01, 0x03, 0x61, 0x64, 0x64, 0x00, 0x00, 0x0a, 0x09, 0x01,
-      0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b};
+int main(int argc, char *argv[]) {
+  OptionParser parser(argv[0], "v8 benchmarking");
+  bool bounds_checks = false;
+  size_t number_of_threads = 1;
+  size_t requests_per_second = 1000;
+  string wasm_path;
 
-  unique_ptr<V8Runtime<AddRequest>> runner { make_unique<V8Runtime<AddRequest>>( argv, span<uint8_t>( wasmbin ), 2,100 ) };
+  parser.AddArgument("wasm-binary", OptionParser::ArgumentCount::One,
+                     [&](const char *arg) { wasm_path = string(arg); });
+  parser.AddOption('b', "bounds-check", "enforce wasm bounds-check",
+                   [&] { bounds_checks = true; });
+  parser.AddOption('j', "parallel", "threads", "number of worker threads",
+                   [&](const char *arg) { number_of_threads = stoi(arg); });
+  parser.AddOption('r', "request-rate", "rate", "number of requests per second",
+                   [&](const char *arg) { requests_per_second = stoi(arg); });
+
+  parser.Parse(argc, argv);
+
+  ReadOnlyFile in(wasm_path);
+
+  unique_ptr<V8Runtime<AddRequest>> runner{make_unique<V8Runtime<AddRequest>>(
+      argv[0], bounds_checks,
+      span<uint8_t>(reinterpret_cast<uint8_t *>(in.addr()), in.length()),
+      number_of_threads, requests_per_second)};
   runner->start();
   sleep( 10 );
   runner.reset();

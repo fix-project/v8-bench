@@ -120,20 +120,20 @@ template <typename Request> class V8Runtime {
   std::vector<std::unique_ptr<V8Runner<Request>>> runners_{};
 
 public:
-  V8Runtime(char *argv[], std::span<uint8_t> wasm_bin, size_t number_of_threads,
-            size_t request_per_second)
-    : env_(argv),
-      request_generator_( request_per_second ) {
-  env_.compile(wasm_bin);
-  std::vector<std::shared_ptr<moodycamel::ReaderWriterQueue<Request>>> request_queues{};
-  for (size_t i = 0; i < number_of_threads; i++) {
-    auto q = std::make_shared<moodycamel::ReaderWriterQueue<Request>>();
-    request_queues.push_back(q);
-    runners_.emplace_back( std::make_unique<V8Runner<Request>>( env_, q ) );
-  }
+  V8Runtime(char *argv0, bool bounds_checks, std::span<uint8_t> wasm_bin,
+            size_t number_of_threads, size_t request_per_second)
+      : env_(argv0, bounds_checks), request_generator_(request_per_second) {
+    env_.compile(wasm_bin);
+    std::vector<std::shared_ptr<moodycamel::ReaderWriterQueue<Request>>>
+        request_queues{};
+    for (size_t i = 0; i < number_of_threads; i++) {
+      auto q = std::make_shared<moodycamel::ReaderWriterQueue<Request>>();
+      request_queues.push_back(q);
+      runners_.emplace_back(std::make_unique<V8Runner<Request>>(env_, q));
+    }
 
-  request_generator_.set_request_queues( std::move( request_queues ) );
-}
+    request_generator_.set_request_queues(std::move(request_queues));
+  }
 
   void start() {
   for (auto &r : runners_) {
