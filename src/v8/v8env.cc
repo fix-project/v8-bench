@@ -13,14 +13,14 @@ V8Env::V8Env(char *argv0, bool bounds_checks) {
   V8::InitializeICUDefaultLocation(argv0);
   V8::InitializeExternalStartupData(argv0);
   platform_ = platform::NewDefaultPlatform();
+  V8::InitializePlatform(platform_.get());
   // TurboFan Compiler Only
   if (bounds_checks) {
     V8::SetFlagsFromString(
-        "--no-liftoff --no-wasm-tier-up --wasm-enforce-bounds-checks");
+        "--liftoff --no-wasm-tier-up --wasm-enforce-bounds-checks");
   } else {
-    V8::SetFlagsFromString("--no-liftoff --no-wasm-tier-up");
+    V8::SetFlagsFromString("--liftoff --no-wasm-tier-up");
   }
-  V8::InitializePlatform(platform_.get());
   V8::Initialize();
 
   create_params_.array_buffer_allocator =

@@ -4,6 +4,7 @@
 #include <v8-context.h>
 #include <v8-persistent-handle.h>
 #include <v8-primitive.h>
+#include <v8-wasm.h>
 
 struct IsolateWrapper {
   v8::Isolate *isolate_;
@@ -24,6 +25,7 @@ private:
 
 public:
   V8Instance(V8Env &env);
+  V8Instance(V8Env &env, v8::CompiledWasmModule module);
   // Instanciate a wasm module instance
   v8::UniquePersistent<v8::Object> instantiate();
   // Comsume a wasm module instance and invoke the specified function

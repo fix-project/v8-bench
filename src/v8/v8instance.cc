@@ -1,5 +1,6 @@
 #include "v8instance.hh"
 #include <v8-persistent-handle.h>
+#include <v8-wasm.h>
 
 using namespace v8;
 using namespace std;
@@ -14,6 +15,13 @@ V8Instance::V8Instance(V8Env &env)
       context_(Context::New(isolate_.isolate_)), context_scope_(context_),
       module_(WasmModuleObject::FromCompiledModule(isolate_.isolate_,
                                                    env_.get_compiled_wasm())
+                  .ToLocalChecked()) {}
+
+V8Instance::V8Instance(V8Env &env, v8::CompiledWasmModule module)
+    : env_(env), isolate_(Isolate::New(env_.get_create_params())),
+      isolate_scope_(isolate_.isolate_), handle_scope_(isolate_.isolate_),
+      context_(Context::New(isolate_.isolate_)), context_scope_(context_),
+      module_(WasmModuleObject::FromCompiledModule(isolate_.isolate_, module)
                   .ToLocalChecked()) {}
 
 UniquePersistent<Object> V8Instance::instantiate() {

@@ -6,6 +6,7 @@
 #include <random>
 #include <readerwriterqueue/readerwriterqueue.h>
 #include <thread>
+#include <v8-wasm.h>
 
 template <typename Request> class RequestGenerator {
   std::vector<std::shared_ptr<moodycamel::ReaderWriterQueue<Request>>>
@@ -13,7 +14,7 @@ template <typename Request> class RequestGenerator {
   size_t request_per_second_;
 
   // Generate a request and push to a randomly selected request queue
-  void generate_one_request(){
+  void generate_one_request() {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> distrib(0, request_queues_.size() - 1);
@@ -32,16 +33,15 @@ template <typename Request> class RequestGenerator {
   }
 
   // Pace request generation by Poisson distribution
- void poisson_request() {
-   std::random_device rd;
-   std::mt19937 gen(rd());
-   std::poisson_distribution<> d(request_per_second_);
+  void poisson_request() {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::poisson_distribution<> d(request_per_second_);
 
-  auto interval = std::chrono::nanoseconds((long)(1e9 / d(gen)));
-  busy_wait(interval);
-  generate_one_request();
- }
-
+    auto interval = std::chrono::nanoseconds((long)(1e9 / d(gen)));
+    busy_wait(interval);
+    generate_one_request();
+  }
 
   bool should_exit_{};
   void run() {
@@ -52,20 +52,19 @@ template <typename Request> class RequestGenerator {
   std::thread thread_{};
 
 public:
-  RequestGenerator( size_t request_per_second )
-    : request_queues_(),
-      request_per_second_(request_per_second) {}
+  RequestGenerator(size_t request_per_second)
+      : request_queues_(), request_per_second_(request_per_second) {}
 
-  void set_request_queues(  
+  void set_request_queues(
       std::vector<std::shared_ptr<moodycamel::ReaderWriterQueue<Request>>>
-          &&request_queues ) {
-    request_queues_ = std::move( request_queues );
+          &&request_queues) {
+    request_queues_ = std::move(request_queues);
   }
 
-  void start(){
-    this->thread_ = std::thread(std::bind(&RequestGenerator<Request>::run, this));
-  }
-;
+  void start() {
+    this->thread_ =
+        std::thread(std::bind(&RequestGenerator<Request>::run, this));
+  };
   ~RequestGenerator() {
     should_exit_ = true;
     thread_.join();
@@ -73,43 +72,52 @@ public:
 };
 
 template <typename Request> class V8Runner {
-  V8Env& env_;
+  V8Env &env_;
   std::shared_ptr<moodycamel::ReaderWriterQueue<Request>> requests_;
   bool should_exit_{};
   int processed_{};
+  std::vector<int> logs_{};
 
-void run() {
-  V8Instance instance( env_ );
+  void run() {
+    V8Instance instance(env_);
 
-  Request request;
-  while (not should_exit_) {
-    while (not should_exit_ and not requests_->try_dequeue(request))
-      ;
+    Request request;
+    while (not should_exit_) {
+      while (not should_exit_ and not requests_->try_dequeue(request))
+        ;
 
-    if (should_exit_) {
-      return;
+      if (should_exit_) {
+        return;
+      }
+
+      auto start = std::chrono::steady_clock::now();
+      instance.invoke(instance.instantiate(), request.func(), request.args());
+      auto end = std::chrono::steady_clock::now();
+      logs_.push_back(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(end - start)
+              .count());
+      processed_++;
     }
-
-    instance.invoke(instance.instantiate(), request.func(), request.args());
-    processed_++;
   }
-}
 
   std::thread thread_{};
 
 public:
-V8Runner(V8Env &env,
-    std::shared_ptr<moodycamel::ReaderWriterQueue<Request>> requests)
-    : env_( env ), 
-      requests_(requests) {}
+  V8Runner(V8Env &env,
+           std::shared_ptr<moodycamel::ReaderWriterQueue<Request>> requests)
+      : env_(env), requests_(requests) {}
 
-    void start() {
-      this->thread_ = std::thread(std::bind(&V8Runner<Request>::run, this));
-    }
+  void start() {
+    this->thread_ = std::thread(std::bind(&V8Runner<Request>::run, this));
+  }
 
   ~V8Runner() {
     should_exit_ = true;
     printf("Processed %d\n", processed_);
+    std::sort(logs_.begin(), logs_.end());
+    printf("P99: %dns\n", logs_[0.99 * processed_]);
+    printf("P90: %dns\n", logs_[0.9 * processed_]);
+    printf("P50: %dns\n", logs_[0.5 * processed_]);
     thread_.join();
   }
 };
@@ -136,9 +144,77 @@ public:
   }
 
   void start() {
-  for (auto &r : runners_) {
-    r->start();
+    for (auto &r : runners_) {
+      r->start();
+    }
+    request_generator_.start();
   }
-  request_generator_.start();
-}
+};
+
+template <typename Request> class V8DirectRunner {
+  V8Env &env_;
+  bool should_exit_{};
+  std::atomic<int> processed_{};
+  std::optional<v8::CompiledWasmModule> module_;
+
+  void run() {
+    V8Instance instance(env_, module_.value());
+
+    Request request;
+    while (not should_exit_) {
+      instance.invoke(instance.instantiate(), request.func(), request.args());
+      processed_++;
+    }
+  }
+
+  std::thread thread_{};
+
+public:
+  V8DirectRunner(V8Env &env, std::span<uint8_t> wasm_bin) : env_(env) {
+    env_.compile(wasm_bin);
+    module_.emplace(env.get_compiled_wasm());
+  }
+
+  void start() {
+    this->thread_ = std::thread(std::bind(&V8DirectRunner::run, this));
+  }
+
+  int report() {
+    should_exit_ = true;
+    return processed_;
+  }
+
+  ~V8DirectRunner() {
+    should_exit_ = true;
+    thread_.join();
+  }
+};
+
+template <typename Request> class V8DirectRuntime {
+  V8Env env_;
+  std::vector<std::unique_ptr<V8DirectRunner<Request>>> runners_{};
+
+public:
+  V8DirectRuntime(char *argv0, bool bounds_checks, std::span<uint8_t> wasm_bin,
+                  size_t number_of_threads)
+      : env_(argv0, bounds_checks) {
+    for (size_t i = 0; i < number_of_threads; i++) {
+      runners_.emplace_back(
+          std::make_unique<V8DirectRunner<Request>>(env_, wasm_bin));
+    }
+  }
+
+  void start() {
+    for (auto &r : runners_) {
+      r->start();
+    }
+  }
+
+  int report() {
+    int result = 0;
+    for (auto &r : runners_) {
+      result += r->report();
+    }
+    return result;
+  }
 };
