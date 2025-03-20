@@ -17,9 +17,9 @@ V8Env::V8Env(char *argv0, bool bounds_checks) {
   // TurboFan Compiler Only
   if (bounds_checks) {
     V8::SetFlagsFromString(
-        "--liftoff --no-wasm-tier-up --wasm-enforce-bounds-checks");
+        "--no-liftoff --no-wasm-tier-up --wasm-enforce-bounds-checks");
   } else {
-    V8::SetFlagsFromString("--liftoff --no-wasm-tier-up");
+    V8::SetFlagsFromString("--no-liftoff --no-wasm-tier-up");
   }
   V8::Initialize();
 
