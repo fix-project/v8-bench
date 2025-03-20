@@ -7,6 +7,22 @@ include(etc/build_type.cmake)
 add_compile_options(-Wall -Wpedantic -Wextra)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -DV8_COMPRESS_POINTERS -DV8_ENABLE_SANDBOX -DV8_ENABLE_CHECKS")
 
+add_custom_command(
+  OUTPUT "add.wasm"
+  DEPENDS ${CMAKE_SOURCE_DIR}/binary/add.wat
+  COMMAND $ENV{HOME}/wasm-toolchain/wabt/build/wat2wasm
+          ${CMAKE_SOURCE_DIR}/binary/add.wat
+          -o add.wasm)
+add_custom_target(add-wasm ALL DEPENDS add.wasm)
+
+add_custom_command(
+  OUTPUT "addmemory.wasm"
+  DEPENDS ${CMAKE_SOURCE_DIR}/binary/addmemory.wat
+  COMMAND $ENV{HOME}/wasm-toolchain/wabt/build/wat2wasm
+          ${CMAKE_SOURCE_DIR}/binary/addmemory.wat
+          -o addmemory.wasm)
+add_custom_target(addmemory-wasm ALL DEPENDS addmemory.wasm)
+
 include_directories(SYSTEM "${PROJECT_SOURCE_DIR}/third-party")
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/v8/include)
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/v8)
