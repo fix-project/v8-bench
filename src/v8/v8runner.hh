@@ -2,6 +2,8 @@
 
 #include <chrono>
 #include <cstdio>
+#include <iostream>
+#include <memory>
 #include <random>
 #include <readerwriterqueue/readerwriterqueue.h>
 #include <thread>
@@ -158,21 +160,33 @@ template <typename Request> class V8DirectRunner {
   bool should_exit_{};
   std::atomic<int> processed_{};
   std::optional<v8::CompiledWasmModule> module_;
+  bool new_isolate_per_call_{};
 
   void run() {
-    V8Instance instance(env_, module_.value());
+    std::unique_ptr<V8Instance> instance =
+        std::make_unique<V8Instance>(env_, module_.value());
 
     Request request;
     while (not should_exit_) {
-      instance.invoke(instance.instantiate(), request.func(), request.args());
+      {
+        instance->invoke(instance->instantiate(), request.func(),
+                         request.args());
+      }
       processed_++;
+
+      if (new_isolate_per_call_) {
+        instance.reset();
+        instance = std::make_unique<V8Instance>(env_, module_.value());
+      }
     }
   }
 
   std::thread thread_{};
 
 public:
-  V8DirectRunner(V8Env &env, std::span<uint8_t> wasm_bin) : env_(env) {
+  V8DirectRunner(V8Env &env, std::span<uint8_t> wasm_bin,
+                 bool new_isolate_per_call)
+      : env_(env), new_isolate_per_call_(new_isolate_per_call) {
     env_.compile(wasm_bin);
     module_.emplace(env.get_compiled_wasm());
   }
@@ -197,12 +211,12 @@ template <typename Request> class V8DirectRuntime : public Runtime {
   std::vector<std::unique_ptr<V8DirectRunner<Request>>> runners_{};
 
 public:
-  V8DirectRuntime(char *argv0, bool bounds_checks, std::span<uint8_t> wasm_bin,
-                  size_t number_of_threads)
-      : env_(argv0, bounds_checks) {
+  V8DirectRuntime(char *argv0, bool new_isolate_per_call,
+                  std::span<uint8_t> wasm_bin, size_t number_of_threads)
+      : env_(argv0) {
     for (size_t i = 0; i < number_of_threads; i++) {
-      runners_.emplace_back(
-          std::make_unique<V8DirectRunner<Request>>(env_, wasm_bin));
+      runners_.emplace_back(std::make_unique<V8DirectRunner<Request>>(
+          env_, wasm_bin, new_isolate_per_call));
     }
   }
 

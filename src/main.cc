@@ -23,42 +23,91 @@ public:
   }
 };
 
+enum RunnerMode {
+  W2CNoMem,
+  W2CSW,
+  W2CHW,
+  V8,
+  V8NewIsolate,
+};
+
 int main(int argc, char *argv[]) {
   OptionParser parser(argv[0], "v8 benchmarking");
-  bool bounds_checks = false;
   size_t number_of_threads = 1;
-  size_t requests_per_second = 1000;
-  bool use_w2c = false;
-  string wasm_path;
 
-  parser.AddArgument("wasm-binary", OptionParser::ArgumentCount::One,
-                     [&](const char *arg) { wasm_path = string(arg); });
-  parser.AddOption('b', "bounds-check", "enforce wasm bounds-check",
-                   [&] { bounds_checks = true; });
+  RunnerMode runner_mode = RunnerMode::W2CNoMem;
+  optional<string> wasm_path;
+
+  parser.AddOption(
+      'r', "runner-mode", "w2c-no-mem|w2c-sw|w2c-hw|v8|v8-new-isolate",
+      "Mode of runners (default: w2c-no-mem)", [&](const char *arg) {
+        if (strcmp(arg, "w2c-no-mem") == 0) {
+          runner_mode = RunnerMode::W2CNoMem;
+        } else if (strcmp(arg, "w2c-sw") == 0) {
+          runner_mode = RunnerMode::W2CSW;
+        } else if (strcmp(arg, "w2c-hw") == 0) {
+          runner_mode = RunnerMode::W2CHW;
+        } else if (strcmp(arg, "v8") == 0) {
+          runner_mode = RunnerMode::V8;
+        } else if (strcmp(arg, "v8-new-isolate") == 0) {
+          runner_mode = RunnerMode::V8NewIsolate;
+        } else {
+          cerr << "Bad argument\n";
+          abort();
+        }
+      });
+
+  parser.AddOption(
+      'b', "wasm-binary", "PATH",
+      "path to wasm binary, must be specificed for v8/v8-new-isolate",
+      [&](const char *arg) { wasm_path = string(arg); });
+
   parser.AddOption('j', "parallel", "threads", "number of worker threads",
                    [&](const char *arg) { number_of_threads = stoi(arg); });
-  parser.AddOption('r', "request-rate", "rate", "number of requests per second",
-                   [&](const char *arg) { requests_per_second = stoi(arg); });
-  parser.AddOption("wasm2c", "benchmark wasm2c", [&]() { use_w2c = true; });
 
   parser.Parse(argc, argv);
 
-  unique_ptr<Runtime> runner;
+  if ((runner_mode == RunnerMode::V8NewIsolate ||
+       runner_mode == RunnerMode::V8) &&
+      (!wasm_path.has_value())) {
+    cerr << "Wasm binary not specified\n";
+    abort();
+  }
 
-  if (use_w2c) {
-    if (bounds_checks) {
-      runner = make_unique<W2CDirectRuntime<AddRequest, W2Caddboundscheck>>(
-          number_of_threads);
-    } else {
-      runner = make_unique<W2CDirectRuntime<AddRequest, W2Caddmmap>>(
-          number_of_threads);
-    }
-  } else {
-    ReadOnlyFile in(wasm_path);
+  unique_ptr<Runtime> runner;
+  switch (runner_mode) {
+  case W2CNoMem:
+    runner =
+        make_unique<W2CDirectRuntime<AddRequest, W2Cadd>>(number_of_threads);
+    break;
+
+  case W2CSW:
+    runner = make_unique<W2CDirectRuntime<AddRequest, W2Caddboundscheck>>(
+        number_of_threads);
+    break;
+
+  case W2CHW:
+    runner = make_unique<W2CDirectRuntime<AddRequest, W2Caddmmap>>(
+        number_of_threads);
+    break;
+
+  case V8: {
+    ReadOnlyFile in(wasm_path.value());
     runner = make_unique<V8DirectRuntime<AddRequest>>(
-        argv[0], bounds_checks,
+        argv[0], false,
         span<uint8_t>(reinterpret_cast<uint8_t *>(in.addr()), in.length()),
         number_of_threads);
+    break;
+  }
+
+  case V8NewIsolate: {
+    ReadOnlyFile in(wasm_path.value());
+    runner = make_unique<V8DirectRuntime<AddRequest>>(
+        argv[0], true,
+        span<uint8_t>(reinterpret_cast<uint8_t *>(in.addr()), in.length()),
+        number_of_threads);
+    break;
+  }
   }
 
   runner->start();
