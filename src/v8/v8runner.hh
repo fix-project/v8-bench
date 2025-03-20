@@ -161,6 +161,7 @@ template <typename Request> class V8DirectRunner {
   std::atomic<int> processed_{};
   std::optional<v8::CompiledWasmModule> module_;
   bool new_isolate_per_call_{};
+  bool new_context_per_call_{};
 
   void run() {
     std::unique_ptr<V8Instance> instance =
@@ -169,8 +170,12 @@ template <typename Request> class V8DirectRunner {
     Request request;
     while (not should_exit_) {
       {
-        instance->invoke(instance->instantiate(), request.func(),
-                         request.args());
+        if (new_context_per_call_) {
+          instance->instantiate_and_invoke_new_context(request.func(),
+                                                       request.args());
+        } else {
+          instance->instantiate_and_invoke(request.func(), request.args());
+        }
       }
       processed_++;
 
@@ -185,8 +190,9 @@ template <typename Request> class V8DirectRunner {
 
 public:
   V8DirectRunner(V8Env &env, std::span<uint8_t> wasm_bin,
-                 bool new_isolate_per_call)
-      : env_(env), new_isolate_per_call_(new_isolate_per_call) {
+                 bool new_isolate_per_call, bool new_context_per_call)
+      : env_(env), new_isolate_per_call_(new_isolate_per_call),
+        new_context_per_call_(new_context_per_call) {
     env_.compile(wasm_bin);
     module_.emplace(env.get_compiled_wasm());
   }
@@ -212,11 +218,12 @@ template <typename Request> class V8DirectRuntime : public Runtime {
 
 public:
   V8DirectRuntime(char *argv0, bool new_isolate_per_call,
-                  std::span<uint8_t> wasm_bin, size_t number_of_threads)
+                  bool new_context_per_call, std::span<uint8_t> wasm_bin,
+                  size_t number_of_threads)
       : env_(argv0) {
     for (size_t i = 0; i < number_of_threads; i++) {
       runners_.emplace_back(std::make_unique<V8DirectRunner<Request>>(
-          env_, wasm_bin, new_isolate_per_call));
+          env_, wasm_bin, new_isolate_per_call, new_context_per_call));
     }
   }
 

@@ -1,5 +1,7 @@
+#include <chrono>
 #include <iostream>
 #include <memory>
+#include <ratio>
 #include <stdlib.h>
 
 #include "mmap.hh"
@@ -29,6 +31,7 @@ enum RunnerMode {
   W2CHW,
   V8,
   V8NewIsolate,
+  V8NewContext,
 };
 
 int main(int argc, char *argv[]) {
@@ -38,24 +41,27 @@ int main(int argc, char *argv[]) {
   RunnerMode runner_mode = RunnerMode::W2CNoMem;
   optional<string> wasm_path;
 
-  parser.AddOption(
-      'r', "runner-mode", "w2c-no-mem|w2c-sw|w2c-hw|v8|v8-new-isolate",
-      "Mode of runners (default: w2c-no-mem)", [&](const char *arg) {
-        if (strcmp(arg, "w2c-no-mem") == 0) {
-          runner_mode = RunnerMode::W2CNoMem;
-        } else if (strcmp(arg, "w2c-sw") == 0) {
-          runner_mode = RunnerMode::W2CSW;
-        } else if (strcmp(arg, "w2c-hw") == 0) {
-          runner_mode = RunnerMode::W2CHW;
-        } else if (strcmp(arg, "v8") == 0) {
-          runner_mode = RunnerMode::V8;
-        } else if (strcmp(arg, "v8-new-isolate") == 0) {
-          runner_mode = RunnerMode::V8NewIsolate;
-        } else {
-          cerr << "Bad argument\n";
-          abort();
-        }
-      });
+  parser.AddOption('r', "runner-mode",
+                   "w2c-no-mem|w2c-sw|w2c-hw|v8|v8-new-isolate|v8-new-context",
+                   "Mode of runners (default: w2c-no-mem)",
+                   [&](const char *arg) {
+                     if (strcmp(arg, "w2c-no-mem") == 0) {
+                       runner_mode = RunnerMode::W2CNoMem;
+                     } else if (strcmp(arg, "w2c-sw") == 0) {
+                       runner_mode = RunnerMode::W2CSW;
+                     } else if (strcmp(arg, "w2c-hw") == 0) {
+                       runner_mode = RunnerMode::W2CHW;
+                     } else if (strcmp(arg, "v8") == 0) {
+                       runner_mode = RunnerMode::V8;
+                     } else if (strcmp(arg, "v8-new-isolate") == 0) {
+                       runner_mode = RunnerMode::V8NewIsolate;
+                     } else if (strcmp(arg, "v8-new-context") == 0) {
+                       runner_mode = RunnerMode::V8NewContext;
+                     } else {
+                       cerr << "Bad argument\n";
+                       abort();
+                     }
+                   });
 
   parser.AddOption(
       'b', "wasm-binary", "PATH",
@@ -94,7 +100,7 @@ int main(int argc, char *argv[]) {
   case V8: {
     ReadOnlyFile in(wasm_path.value());
     runner = make_unique<V8DirectRuntime<AddRequest>>(
-        argv[0], false,
+        argv[0], false, false,
         span<uint8_t>(reinterpret_cast<uint8_t *>(in.addr()), in.length()),
         number_of_threads);
     break;
@@ -103,19 +109,34 @@ int main(int argc, char *argv[]) {
   case V8NewIsolate: {
     ReadOnlyFile in(wasm_path.value());
     runner = make_unique<V8DirectRuntime<AddRequest>>(
-        argv[0], true,
+        argv[0], true, false,
+        span<uint8_t>(reinterpret_cast<uint8_t *>(in.addr()), in.length()),
+        number_of_threads);
+    break;
+  }
+
+  case V8NewContext: {
+    ReadOnlyFile in(wasm_path.value());
+    runner = make_unique<V8DirectRuntime<AddRequest>>(
+        argv[0], false, true,
         span<uint8_t>(reinterpret_cast<uint8_t *>(in.addr()), in.length()),
         number_of_threads);
     break;
   }
   }
 
+  auto now = chrono::steady_clock::now();
   runner->start();
   sleep(10);
   auto result = runner->report();
-  runner.reset();
+  auto end = chrono::steady_clock::now();
+  auto elapsed = end - now;
+  auto time = elapsed / result;
+  auto iter_per_second =
+      (double)result / duration_cast<chrono::seconds>(elapsed).count();
 
-  cout << "Total request processed: " << result << endl;
+  cout << number_of_threads << " threads: " << time << " per iteration ("
+       << iter_per_second << " iters/second) - ran for " << elapsed << endl;
 
   return 0;
 }

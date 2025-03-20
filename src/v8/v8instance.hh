@@ -33,5 +33,11 @@ public:
   invoke(v8::UniquePersistent<v8::Object> &&module_instance, const char *func,
          std::span<const int> args);
 
+  v8::UniquePersistent<v8::Value>
+  instantiate_and_invoke(const char *func, std::span<const int> args);
+  v8::UniquePersistent<v8::Value>
+  instantiate_and_invoke_new_context(const char *func,
+                                     std::span<const int> args);
+
   uint32_t to_uint32(v8::UniquePersistent<v8::Value> &&handle);
 };
