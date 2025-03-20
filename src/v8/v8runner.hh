@@ -1,12 +1,14 @@
 #pragma once
 
-#include "v8instance.hh"
 #include <chrono>
 #include <cstdio>
 #include <random>
 #include <readerwriterqueue/readerwriterqueue.h>
 #include <thread>
 #include <v8-wasm.h>
+
+#include "runtime.hh"
+#include "v8instance.hh"
 
 template <typename Request> class RequestGenerator {
   std::vector<std::shared_ptr<moodycamel::ReaderWriterQueue<Request>>>
@@ -190,7 +192,7 @@ public:
   }
 };
 
-template <typename Request> class V8DirectRuntime {
+template <typename Request> class V8DirectRuntime : public Runtime {
   V8Env env_;
   std::vector<std::unique_ptr<V8DirectRunner<Request>>> runners_{};
 
@@ -204,13 +206,13 @@ public:
     }
   }
 
-  void start() {
+  void start() override {
     for (auto &r : runners_) {
       r->start();
     }
   }
 
-  int report() {
+  int report() override {
     int result = 0;
     for (auto &r : runners_) {
       result += r->report();

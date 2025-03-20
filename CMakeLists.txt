@@ -16,6 +16,7 @@ link_directories(${CMAKE_SOURCE_DIR}/v8/out/x64.release/obj)
 SET(LIBV8
     v8_monolith)
 
+include_directories(${CMAKE_SOURCE_DIR}/src/common)
 file(GLOB V8_LIB_SOURCES src/v8/*.cc)
 add_library(v8lib ${V8_LIB_SOURCES})
 

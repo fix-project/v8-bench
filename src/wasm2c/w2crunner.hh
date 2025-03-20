@@ -3,6 +3,8 @@
 #include <functional>
 #include <thread>
 
+#include "runtime.hh"
+
 template <typename Request, typename W2Cmodule> class W2CDirectRunner {
   bool should_exit_{};
   std::atomic<int> processed_{};
@@ -36,7 +38,8 @@ public:
   }
 };
 
-template <typename Request, typename W2Cmodule> class W2CDirectRuntime {
+template <typename Request, typename W2Cmodule>
+class W2CDirectRuntime : public Runtime {
   std::vector<std::unique_ptr<W2CDirectRunner<Request, W2Cmodule>>> runners_{};
 
 public:
@@ -47,13 +50,13 @@ public:
     }
   }
 
-  void start() {
+  void start() override {
     for (auto &r : runners_) {
       r->start();
     }
   }
 
-  int report() {
+  int report() override {
     int result = 0;
     for (auto &r : runners_) {
       result += r->report();

@@ -43,38 +43,28 @@ int main(int argc, char *argv[]) {
 
   parser.Parse(argc, argv);
 
-  int result;
+  unique_ptr<Runtime> runner;
 
   if (use_w2c) {
     if (bounds_checks) {
-      unique_ptr<W2CDirectRuntime<AddRequest, W2Caddboundscheck>> runner{
-          make_unique<W2CDirectRuntime<AddRequest, W2Caddboundscheck>>(
-              number_of_threads)};
-      runner->start();
-      sleep(10);
-      result = runner->report();
-      runner.reset();
+      runner = make_unique<W2CDirectRuntime<AddRequest, W2Caddboundscheck>>(
+          number_of_threads);
     } else {
-      unique_ptr<W2CDirectRuntime<AddRequest, W2Caddmmap>> runner{
-          make_unique<W2CDirectRuntime<AddRequest, W2Caddmmap>>(
-              number_of_threads)};
-      runner->start();
-      sleep(10);
-      result = runner->report();
-      runner.reset();
+      runner = make_unique<W2CDirectRuntime<AddRequest, W2Caddmmap>>(
+          number_of_threads);
     }
   } else {
     ReadOnlyFile in(wasm_path);
-    unique_ptr<V8DirectRuntime<AddRequest>> runner{
-        make_unique<V8DirectRuntime<AddRequest>>(
-            argv[0], bounds_checks,
-            span<uint8_t>(reinterpret_cast<uint8_t *>(in.addr()), in.length()),
-            number_of_threads)};
-    runner->start();
-    sleep(10);
-    result = runner->report();
-    runner.reset();
+    runner = make_unique<V8DirectRuntime<AddRequest>>(
+        argv[0], bounds_checks,
+        span<uint8_t>(reinterpret_cast<uint8_t *>(in.addr()), in.length()),
+        number_of_threads);
   }
+
+  runner->start();
+  sleep(10);
+  auto result = runner->report();
+  runner.reset();
 
   cout << "Total request processed: " << result << endl;
 
