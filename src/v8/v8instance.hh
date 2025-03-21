@@ -20,7 +20,6 @@ private:
   v8::Isolate::Scope isolate_scope_;
   v8::HandleScope handle_scope_;
   v8::Local<v8::Context> context_;
-  v8::Context::Scope context_scope_;
   v8::Local<v8::Value> module_;
 
 public:

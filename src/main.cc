@@ -1,7 +1,7 @@
 #include <chrono>
+#include <cstdio>
 #include <iostream>
 #include <memory>
-#include <ratio>
 #include <stdlib.h>
 
 #include "mmap.hh"

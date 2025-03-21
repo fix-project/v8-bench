@@ -1,5 +1,7 @@
 #pragma once
 
+#undef V8_ENABLE_CHECKS
+
 #include "include/v8.h"
 #include "v8-wasm.h"
 #include <span>
