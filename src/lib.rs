@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::{Duration, Instant},
+};
 
 use serde::Serialize;
 
@@ -14,14 +17,14 @@ pub struct Datum {
 }
 
 pub trait Benchmark {
-    fn run(&self, parallel: usize, iterations_per_thread: usize) -> Duration;
+    fn bench(&self, parallel: usize, iterations_per_thread: usize) -> Duration;
 
     fn collect_data(&self, max_parallel: usize, iterations_per_thread: usize) -> Vec<Datum> {
         let mut data = vec![];
         let lg_max_parallel = max_parallel.ilog2();
         for lg_parallel in 0..lg_max_parallel + 1 {
             let parallel = 1 << lg_parallel;
-            let duration = self.run(parallel, iterations_per_thread);
+            let duration = self.bench(parallel, iterations_per_thread);
             let duration_ns = duration.as_nanos();
             let iterations = iterations_per_thread * parallel;
 
@@ -38,5 +41,36 @@ pub trait Benchmark {
             );
         }
         data
+    }
+}
+
+pub trait SingleThreadedRuntime {
+    fn run(&self, iterations: usize);
+}
+
+impl<T: SingleThreadedRuntime + Sync> Benchmark for T {
+    fn bench(&self, parallel: usize, iterations_per_thread: usize) -> Duration {
+        let begin = AtomicBool::new(false);
+        std::thread::scope(|s| {
+            let mut handles = vec![];
+            for _ in 0..parallel {
+                let handle = s.spawn(|| {
+                    while !begin.load(Ordering::SeqCst) {
+                        std::thread::park();
+                    }
+                    self.run(iterations_per_thread);
+                });
+                handles.push(handle);
+            }
+            let start = Instant::now();
+            begin.store(true, Ordering::SeqCst);
+            for h in handles.iter() {
+                h.thread().unpark();
+            }
+            for h in handles {
+                h.join().unwrap();
+            }
+            start.elapsed()
+        })
     }
 }

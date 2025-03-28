@@ -1,17 +1,9 @@
-use std::{
-    marker::PhantomData,
-    path::PathBuf,
-    sync::{
-        LazyLock,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::{Duration, Instant},
-};
+use std::{marker::PhantomData, path::PathBuf, sync::LazyLock};
 
 use anyhow::Result;
 use v8::{CompiledWasmModule, Local, Object, WasmModuleObject};
 
-use crate::Benchmark;
+use crate::SingleThreadedRuntime;
 
 static ONE_TIME_INIT: LazyLock<()> = LazyLock::new(|| {
     let platform = v8::new_default_platform(0, false).make_shared();
@@ -54,8 +46,8 @@ impl<MODE: V8Mode> V8Benchmark<MODE> {
     }
 }
 
-impl V8Benchmark<NewIsolate> {
-    pub fn iterate(&self, todo: usize) {
+impl SingleThreadedRuntime for V8Benchmark<NewIsolate> {
+    fn run(&self, todo: usize) {
         for _ in 0..todo {
             let isolate = &mut v8::Isolate::new(Default::default());
             let mut handle_scope = v8::HandleScope::new(isolate);
@@ -70,35 +62,8 @@ impl V8Benchmark<NewIsolate> {
     }
 }
 
-impl Benchmark for V8Benchmark<NewIsolate> {
-    fn run(&self, parallel: usize, iterations_per_thread: usize) -> Duration {
-        let begin = AtomicBool::new(false);
-        std::thread::scope(|s| {
-            let mut handles = vec![];
-            for _ in 0..parallel {
-                let handle = s.spawn(|| {
-                    while !begin.load(Ordering::SeqCst) {
-                        std::thread::park();
-                    }
-                    self.iterate(iterations_per_thread);
-                });
-                handles.push(handle);
-            }
-            let start = Instant::now();
-            begin.store(true, Ordering::SeqCst);
-            for h in handles.iter() {
-                h.thread().unpark();
-            }
-            for h in handles {
-                h.join().unwrap();
-            }
-            start.elapsed()
-        })
-    }
-}
-
-impl V8Benchmark<SameIsolateNewContext> {
-    pub fn iterate(&self, todo: usize) {
+impl SingleThreadedRuntime for V8Benchmark<SameIsolateNewContext> {
+    fn run(&self, todo: usize) {
         let isolate = &mut v8::Isolate::new(Default::default());
         for _ in 0..todo {
             let mut handle_scope = v8::HandleScope::new(isolate);
@@ -113,35 +78,8 @@ impl V8Benchmark<SameIsolateNewContext> {
     }
 }
 
-impl Benchmark for V8Benchmark<SameIsolateNewContext> {
-    fn run(&self, parallel: usize, iterations_per_thread: usize) -> Duration {
-        let begin = AtomicBool::new(false);
-        std::thread::scope(|s| {
-            let mut handles = vec![];
-            for _ in 0..parallel {
-                let handle = s.spawn(|| {
-                    while !begin.load(Ordering::SeqCst) {
-                        std::thread::park();
-                    }
-                    self.iterate(iterations_per_thread);
-                });
-                handles.push(handle);
-            }
-            let start = Instant::now();
-            begin.store(true, Ordering::SeqCst);
-            for h in handles.iter() {
-                h.thread().unpark();
-            }
-            for h in handles {
-                h.join().unwrap();
-            }
-            start.elapsed()
-        })
-    }
-}
-
-impl V8Benchmark<SameIsolateSameContext> {
-    pub fn iterate(&self, todo: usize) {
+impl SingleThreadedRuntime for V8Benchmark<SameIsolateSameContext> {
+    fn run(&self, todo: usize) {
         let isolate = &mut v8::Isolate::new(Default::default());
         let mut handle_scope = v8::HandleScope::new(isolate);
         let context = v8::Context::new(&mut handle_scope, Default::default());
@@ -155,33 +93,6 @@ impl V8Benchmark<SameIsolateSameContext> {
             let mut context_scope = v8::ContextScope::new(&mut handle_scope, context);
             body(global, &mut context_scope, module);
         }
-    }
-}
-
-impl Benchmark for V8Benchmark<SameIsolateSameContext> {
-    fn run(&self, parallel: usize, iterations_per_thread: usize) -> Duration {
-        let begin = AtomicBool::new(false);
-        std::thread::scope(|s| {
-            let mut handles = vec![];
-            for _ in 0..parallel {
-                let handle = s.spawn(|| {
-                    while !begin.load(Ordering::SeqCst) {
-                        std::thread::park();
-                    }
-                    self.iterate(iterations_per_thread);
-                });
-                handles.push(handle);
-            }
-            let start = Instant::now();
-            begin.store(true, Ordering::SeqCst);
-            for h in handles.iter() {
-                h.thread().unpark();
-            }
-            for h in handles {
-                h.join().unwrap();
-            }
-            start.elapsed()
-        })
     }
 }
 
