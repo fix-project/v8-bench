@@ -1,4 +1,8 @@
-use std::{path::PathBuf, process::Command};
+use std::{
+    path::PathBuf,
+    process::Command,
+    time::{Duration, Instant},
+};
 
 use crate::SingleThreadedRuntime;
 use anyhow::Result;
@@ -102,7 +106,7 @@ impl Drop for Wasm2CBenchmark {
 }
 
 impl SingleThreadedRuntime for Wasm2CBenchmark {
-    fn run(&self, todo: usize) {
+    fn run(&self, duration: Duration) -> usize {
         unsafe {
             let allocate_module: libloading::Symbol<
                 unsafe extern "C" fn() -> *mut std::ffi::c_void,
@@ -111,11 +115,15 @@ impl SingleThreadedRuntime for Wasm2CBenchmark {
                 self.lib.get(b"w2c_module_add").unwrap();
             let free_module: libloading::Symbol<unsafe extern "C" fn(*mut std::ffi::c_void)> =
                 self.lib.get(b"free_module").unwrap();
-            for _ in 0..todo {
+            let start = Instant::now();
+            let mut i = 0;
+            while start.elapsed() < duration {
                 let module = allocate_module();
                 add(module, 1, 2);
                 free_module(module);
+                i += 1;
             }
+            i
         }
     }
 }

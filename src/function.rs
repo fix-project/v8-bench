@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use crate::SingleThreadedRuntime;
 
 pub struct FunctionBenchmark;
@@ -13,12 +15,16 @@ impl FunctionBenchmark {
 }
 
 impl SingleThreadedRuntime for FunctionBenchmark {
-    fn run(&self, todo: usize) {
-        for _ in 0..todo {
+    fn run(&self, duration: Duration) -> usize {
+        let start = Instant::now();
+        let mut i = 0;
+        while start.elapsed() < duration {
             let x = core::hint::black_box(1);
             let y = core::hint::black_box(2);
             core::hint::black_box(add(x, y));
+            i += 1;
         }
+        i
     }
 }
 

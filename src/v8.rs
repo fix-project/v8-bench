@@ -1,4 +1,9 @@
-use std::{marker::PhantomData, path::PathBuf, sync::LazyLock};
+use std::{
+    marker::PhantomData,
+    path::PathBuf,
+    sync::LazyLock,
+    time::{Duration, Instant},
+};
 
 use anyhow::Result;
 use v8::{CompiledWasmModule, Local, Object, WasmModuleObject};
@@ -47,8 +52,10 @@ impl<MODE: V8Mode> V8Benchmark<MODE> {
 }
 
 impl SingleThreadedRuntime for V8Benchmark<NewIsolate> {
-    fn run(&self, todo: usize) {
-        for _ in 0..todo {
+    fn run(&self, duration: Duration) -> usize {
+        let start = Instant::now();
+        let mut i = 0;
+        while start.elapsed() < duration {
             let isolate = &mut v8::Isolate::new(Default::default());
             let mut handle_scope = v8::HandleScope::new(isolate);
             let context = v8::Context::new(&mut handle_scope, Default::default());
@@ -58,14 +65,18 @@ impl SingleThreadedRuntime for V8Benchmark<NewIsolate> {
                 v8::WasmModuleObject::from_compiled_module(&mut context_scope, &self.module)
                     .unwrap();
             body(global, &mut context_scope, module);
+            i += 1;
         }
+        i
     }
 }
 
 impl SingleThreadedRuntime for V8Benchmark<SameIsolateNewContext> {
-    fn run(&self, todo: usize) {
+    fn run(&self, duration: Duration) -> usize {
         let isolate = &mut v8::Isolate::new(Default::default());
-        for _ in 0..todo {
+        let start = Instant::now();
+        let mut i = 0;
+        while start.elapsed() < duration {
             let mut handle_scope = v8::HandleScope::new(isolate);
             let context = v8::Context::new(&mut handle_scope, Default::default());
             let global = context.global(&mut handle_scope);
@@ -74,12 +85,14 @@ impl SingleThreadedRuntime for V8Benchmark<SameIsolateNewContext> {
                 v8::WasmModuleObject::from_compiled_module(&mut context_scope, &self.module)
                     .unwrap();
             body(global, &mut context_scope, module);
+            i += 1;
         }
+        i
     }
 }
 
 impl SingleThreadedRuntime for V8Benchmark<SameIsolateSameContext> {
-    fn run(&self, todo: usize) {
+    fn run(&self, duration: Duration) -> usize {
         let isolate = &mut v8::Isolate::new(Default::default());
         let mut handle_scope = v8::HandleScope::new(isolate);
         let context = v8::Context::new(&mut handle_scope, Default::default());
@@ -87,12 +100,16 @@ impl SingleThreadedRuntime for V8Benchmark<SameIsolateSameContext> {
         let module =
             v8::WasmModuleObject::from_compiled_module(&mut context_scope, &self.module).unwrap();
         core::mem::drop(context_scope);
-        for _ in 0..todo {
+        let start = Instant::now();
+        let mut i = 0;
+        while start.elapsed() < duration {
             let mut handle_scope = v8::HandleScope::new(&mut handle_scope);
             let global = context.global(&mut handle_scope);
             let mut context_scope = v8::ContextScope::new(&mut handle_scope, context);
             body(global, &mut context_scope, module);
+            i += 1;
         }
+        i
     }
 }
 
