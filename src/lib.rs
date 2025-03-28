@@ -7,6 +7,7 @@ use serde::Serialize;
 
 pub mod function;
 pub mod v8;
+pub mod wasm2c;
 
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct Datum {

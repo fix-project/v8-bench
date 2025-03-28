@@ -4,6 +4,7 @@ use benchmark::{
     self,
     function::FunctionBenchmark,
     v8::{NewIsolate, SameIsolateNewContext, SameIsolateSameContext, V8Benchmark},
+    wasm2c::Wasm2CBenchmark,
 };
 
 use benchmark::Benchmark;
@@ -55,6 +56,10 @@ enum BenchmarkMode {
     V8ContextPerCall,
     /// V8 with one isolate per call
     V8IsolatePerCall,
+    /// wasm2c with software bounds checking
+    Wasm2cSoftwareBoundsChecked,
+    /// wasm2c with hardware bounds checking
+    Wasm2cHardwareBoundsChecked,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -70,13 +75,21 @@ fn main() -> anyhow::Result<()> {
             module,
             output,
         } => {
-            let benchmark: &dyn Benchmark = match benchmark {
-                BenchmarkMode::Function => &FunctionBenchmark::new(),
-                BenchmarkMode::V8 => &V8Benchmark::<SameIsolateSameContext>::new(module)?,
-                BenchmarkMode::V8ContextPerCall => {
-                    &V8Benchmark::<SameIsolateNewContext>::new(module)?
+            let benchmark: &dyn Benchmark = unsafe {
+                match benchmark {
+                    BenchmarkMode::Function => &FunctionBenchmark::new(),
+                    BenchmarkMode::V8 => &V8Benchmark::<SameIsolateSameContext>::new(module)?,
+                    BenchmarkMode::V8ContextPerCall => {
+                        &V8Benchmark::<SameIsolateNewContext>::new(module)?
+                    }
+                    BenchmarkMode::V8IsolatePerCall => &V8Benchmark::<NewIsolate>::new(module)?,
+                    BenchmarkMode::Wasm2cSoftwareBoundsChecked => {
+                        &Wasm2CBenchmark::new(module, false)?
+                    }
+                    BenchmarkMode::Wasm2cHardwareBoundsChecked => {
+                        &Wasm2CBenchmark::new(module, true)?
+                    }
                 }
-                BenchmarkMode::V8IsolatePerCall => &V8Benchmark::<NewIsolate>::new(module)?,
             };
 
             let mut writer = output.map(csv::Writer::from_path).transpose()?;
