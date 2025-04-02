@@ -44,9 +44,98 @@ impl SyscallReturnCode {
     }
 }
 
+pub enum CloneBenchmarkType {
+    Add,
+    AddVec,
+    MatMul,
+}
+
+const DIM: usize = 64;
+static mut SIZE: usize = 0;
+static mut MEMORY: [u8; 65536] = [0; 65536];
+
+unsafe fn set(idx: usize, x: usize, y: usize, val: u32) {
+    unsafe {
+        let base = SIZE * idx;
+        let offset = DIM * y + x;
+        let address = &mut MEMORY[(base + offset) * 4];
+        let p: &mut u32 = core::mem::transmute(address);
+        *p = val;
+    }
+}
+
+unsafe fn get(idx: usize, x: usize, y: usize) -> u32 {
+    unsafe {
+        let base = SIZE * idx;
+        let offset = DIM * y + x;
+        let address = &mut MEMORY[(base + offset) * 4];
+        let p: &mut u32 = core::mem::transmute(address);
+        *p
+    }
+}
+
+extern "C" fn matmul(arg: *mut c_void) -> c_int {
+    let arg: &mut Arg = unsafe { &mut *(arg as *mut Arg) };
+    let lhs = arg.0 as u32;
+    let rhs = arg.1 as u32;
+
+    unsafe {
+        for y in 0..DIM {
+            for x in 0..DIM {
+                set(0, x, y, lhs);
+            }
+        }
+
+        for y in 0..DIM {
+            for x in 0..DIM {
+                set(1, x, y, rhs);
+            }
+        }
+
+        for y in 0..DIM {
+            for x in 0..DIM {
+                let mut sum = 0;
+                for i in 0..DIM {
+                    sum += get(0, i, y) + get(1, x, i);
+                }
+                set(2, x, y, sum);
+            }
+        }
+
+        let mut sum = 0;
+        for y in 0..DIM {
+            for x in 0..DIM {
+                sum += get(2, x, y);
+            }
+        }
+        sum.try_into().unwrap()
+    }
+}
+
 extern "C" fn add(arg: *mut c_void) -> c_int {
     let arg: &mut Arg = unsafe { &mut *(arg as *mut Arg) };
     arg.0 + arg.1
+}
+
+extern "C" fn addvec(arg: *mut c_void) -> c_int {
+    let arg: &mut Arg = unsafe { &mut *(arg as *mut Arg) };
+    let x = arg.0;
+    let y = arg.1;
+
+    let mem: &mut [u32; 65536 >> 2] = unsafe { std::mem::transmute(&raw mut MEMORY) };
+
+    for i in 0..4096 {
+        mem[i] = x as u32;
+    }
+    for i in 0..4096 {
+        mem[4096 + i] = y as u32;
+    }
+    for i in 0..4096 {
+        mem[8192 + i] = mem[i] + mem[4096 + i];
+    }
+
+    let z = mem[8192] as u32;
+    z.try_into().unwrap()
 }
 
 fn chenv() -> std::io::Result<()> {
@@ -59,6 +148,20 @@ fn chenv() -> std::io::Result<()> {
 extern "C" fn add_containered(arg: *mut c_void) -> c_int {
     match chenv() {
         Ok(_) => add(arg),
+        Err(e) => e.raw_os_error().unwrap(),
+    }
+}
+
+extern "C" fn addvec_containered(arg: *mut c_void) -> c_int {
+    match chenv() {
+        Ok(_) => addvec(arg),
+        Err(e) => e.raw_os_error().unwrap(),
+    }
+}
+
+extern "C" fn matmul_containered(arg: *mut c_void) -> c_int {
+    match chenv() {
+        Ok(_) => matmul(arg),
         Err(e) => e.raw_os_error().unwrap(),
     }
 }
@@ -120,6 +223,7 @@ impl CloneBenchmark {
     }
 
     pub fn new(
+        benchmark: CloneBenchmarkType,
         set_flags: bool,
         chenv: bool,
         clone3: bool,
@@ -129,7 +233,29 @@ impl CloneBenchmark {
             set_flags,
             clone3,
             clone_into_cgroup: clone3 && clone_into_cgroup,
-            cb: if chenv { add_containered } else { add },
+            cb: match benchmark {
+                CloneBenchmarkType::Add => {
+                    if chenv {
+                        add_containered
+                    } else {
+                        add
+                    }
+                }
+                CloneBenchmarkType::AddVec => {
+                    if chenv {
+                        addvec_containered
+                    } else {
+                        addvec
+                    }
+                }
+                CloneBenchmarkType::MatMul => {
+                    if chenv {
+                        matmul_containered
+                    } else {
+                        matmul
+                    }
+                }
+            },
         })
     }
 }
