@@ -2,14 +2,13 @@
 #![feature(slice_ptr_get)]
 
 use std::{
-    sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::{Duration, Instant},
 };
 
 use serde::Serialize;
 
 pub mod arca;
-pub mod function;
 pub mod v8;
 pub mod wasm2c;
 
@@ -22,10 +21,10 @@ pub struct Datum {
 }
 
 pub trait Benchmark {
-    fn bench(&self, parallel: usize, duration: Duration) -> Vec<usize>;
+    fn bench(&self, parallel: usize, warmup: Duration, duration: Duration) -> Vec<usize>;
 
-    fn experiment(&self, parallel: usize, duration: Duration) -> Vec<Datum> {
-        let results = self.bench(parallel, duration);
+    fn experiment(&self, parallel: usize, warmup: Duration, duration: Duration) -> Vec<Datum> {
+        let results = self.bench(parallel, warmup, duration);
         let duration_ns = duration.as_nanos();
 
         let min = results.iter().min().unwrap();
@@ -48,38 +47,82 @@ pub trait Benchmark {
             .collect()
     }
 
-    fn collect_data(&self, max_parallel: usize, duration: Duration) -> Vec<Datum> {
+    fn collect_data(
+        &self,
+        max_parallel: usize,
+        warmup: Duration,
+        duration: Duration,
+    ) -> Vec<Datum> {
         let mut data = vec![];
         let lg_max_parallel = max_parallel.ilog2();
         for lg_parallel in 0..lg_max_parallel + 1 {
             let parallel = 1 << lg_parallel;
-            data.extend(self.experiment(parallel, duration));
+            data.extend(self.experiment(parallel, warmup, duration));
         }
         data
     }
 }
+pub trait SimpleRuntime {
+    type State;
+
+    fn setup(&self) -> Self::State;
+    fn iterate(&self, state: &mut Self::State);
+}
 
 pub trait SingleThreadedRuntime {
-    fn run(&self, duration: Duration) -> usize;
+    fn run(
+        &self,
+        warmup: Duration,
+        duration: Duration,
+        notready: &AtomicUsize,
+        notdone: &AtomicUsize,
+    ) -> usize;
+}
+
+impl<T: SimpleRuntime> SingleThreadedRuntime for T {
+    fn run(
+        &self,
+        warmup: Duration,
+        duration: Duration,
+        notready: &AtomicUsize,
+        notdone: &AtomicUsize,
+    ) -> usize {
+        let mut state = self.setup();
+        let warmup_start = Instant::now();
+        while warmup_start.elapsed() < warmup {
+            self.iterate(&mut state);
+        }
+        notready.fetch_sub(1, Ordering::Release);
+        while notready.load(Ordering::Acquire) != 0 {
+            self.iterate(&mut state);
+        }
+        let start = Instant::now();
+        let mut iters = 0;
+        loop {
+            self.iterate(&mut state);
+            if start.elapsed() < duration {
+                iters += 1;
+            } else {
+                break;
+            }
+        }
+        notdone.fetch_sub(1, Ordering::Release);
+        while notready.load(Ordering::Acquire) != 0 {
+            self.iterate(&mut state);
+        }
+        iters
+    }
 }
 
 impl<T: SingleThreadedRuntime + Sync> Benchmark for T {
-    fn bench(&self, parallel: usize, duration: Duration) -> Vec<usize> {
-        let begin = AtomicBool::new(false);
+    fn bench(&self, parallel: usize, warmup: Duration, duration: Duration) -> Vec<usize> {
+        let notready = AtomicUsize::new(parallel);
+        let notdone = AtomicUsize::new(parallel);
         std::thread::scope(|s| {
             let mut handles = vec![];
             for _ in 0..parallel {
-                let handle = s.spawn(|| {
-                    while !begin.load(Ordering::SeqCst) {
-                        std::thread::park();
-                    }
-                    self.run(duration)
-                });
+                let handle = s.spawn(|| self.run(warmup, duration, &notready, &notdone));
                 handles.push(handle);
-            }
-            begin.store(true, Ordering::SeqCst);
-            for h in handles.iter() {
-                h.thread().unpark();
             }
             handles.into_iter().map(|h| h.join().unwrap()).collect()
         })

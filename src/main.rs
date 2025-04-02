@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use benchmark::{
     self,
     arca::ArcaBenchmark,
-    function::FunctionBenchmark,
     v8::{NewIsolate, SameIsolateNewContext, SameIsolateSameContext, V8Benchmark},
     wasm2c::Wasm2CBenchmark,
 };
@@ -19,9 +18,12 @@ struct Args {
     /// How many threads to use at maximum (default: the number of CPUs)
     #[arg(short, long)]
     parallel: Option<usize>,
-    /// How many iterations to run per thread
+    /// How long to benchmark
     #[arg(short, long, default_value = "1s")]
     duration: humantime::Duration,
+    /// How long to warm up
+    #[arg(short, long, default_value = "100ms")]
+    warmup: humantime::Duration,
     #[command(subcommand)]
     command: Commands,
 }
@@ -56,15 +58,15 @@ enum BenchmarkType {
     /// Add two 4096-element vectors
     AddVec,
     /// Multiply two 64x64 matrices
+    #[clap(name = "matmul64")]
     MatMul64,
     /// Multiply two 128x128 matrices
+    #[clap(name = "matmul128")]
     MatMul128,
 }
 
 #[derive(clap::ValueEnum, Clone, Debug, Copy)]
 enum BenchmarkMode {
-    /// Native Rust add function
-    Function,
     /// V8 with one isolate per thread and one context per thread
     V8,
     /// V8 with one isolate per thread but one context per call
@@ -106,6 +108,7 @@ fn main() -> anyhow::Result<()> {
     let parallel = args.parallel.unwrap_or(0);
     let cpus: usize = std::thread::available_parallelism().unwrap().into();
     let parallel = if parallel == 0 { cpus } else { parallel };
+    let warmup: std::time::Duration = args.warmup.into();
     let duration: std::time::Duration = args.duration.into();
 
     match args.command {
@@ -116,7 +119,6 @@ fn main() -> anyhow::Result<()> {
         } => {
             let benchmark: &dyn Benchmark = unsafe {
                 match benchmark {
-                    BenchmarkMode::Function => &FunctionBenchmark::new(),
                     BenchmarkMode::V8 => {
                         &V8Benchmark::<SameIsolateSameContext>::new(wat_benchmark(program))?
                     }
@@ -138,7 +140,7 @@ fn main() -> anyhow::Result<()> {
 
             let mut writer = output.map(csv::Writer::from_path).transpose()?;
 
-            for datum in benchmark.collect_data(parallel, duration) {
+            for datum in benchmark.collect_data(parallel, warmup, duration) {
                 if let Some(ref mut writer) = writer {
                     writer.serialize(datum)?;
                 }
@@ -185,7 +187,7 @@ fn main() -> anyhow::Result<()> {
                 file.set_extension("csv");
                 let mut writer = csv::Writer::from_path(file)?;
                 log::info!("running benchmark {label}");
-                for datum in benchmark.collect_data(parallel, duration) {
+                for datum in benchmark.collect_data(parallel, warmup, duration) {
                     writer.serialize(datum)?;
                 }
             }

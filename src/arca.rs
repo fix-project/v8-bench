@@ -21,7 +21,7 @@ impl ArcaBenchmark {
 }
 
 impl Benchmark for ArcaBenchmark {
-    fn bench(&self, parallel: usize, duration: Duration) -> Vec<usize> {
+    fn bench(&self, parallel: usize, warmup: Duration, duration: Duration) -> Vec<usize> {
         let mut mmap = Mmap::new(1 << 32);
         let cpus: usize = std::thread::available_parallelism().unwrap().into();
         let runtime = Runtime::new(cpus, &mut mmap, KERNEL_ELF.into());
@@ -42,7 +42,8 @@ impl Benchmark for ArcaBenchmark {
             let len = new_elf.len();
             let offset = allocator.to_offset(ptr);
             let duration = duration.as_nanos().try_into().unwrap();
-            runtime.run(&[offset, len, duration, out_offset, out_length]);
+            let warmup = warmup.as_nanos().try_into().unwrap();
+            runtime.run(&[offset, len, warmup, duration, out_offset, out_length]);
             output.iter().map(|x| x.load(Ordering::SeqCst)).collect()
         };
         std::mem::drop(runtime);

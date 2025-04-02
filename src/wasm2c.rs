@@ -1,16 +1,14 @@
-use std::{
-    process::Command,
-    time::{Duration, Instant},
-};
+use std::{process::Command, sync::Arc};
 
-use crate::SingleThreadedRuntime;
+use crate::SimpleRuntime;
 use anyhow::Result;
 use include_directory::{Dir, include_directory};
+use ouroboros::self_referencing;
 
 static WASM2C_RT: Dir<'_> = include_directory!("$CARGO_MANIFEST_DIR/wasm2c");
 
 pub struct Wasm2CBenchmark {
-    lib: libloading::Library,
+    lib: Arc<libloading::Library>,
 }
 
 impl Wasm2CBenchmark {
@@ -88,7 +86,7 @@ impl Wasm2CBenchmark {
             let wasm_rt_init: libloading::Symbol<unsafe extern "C" fn()> =
                 lib.get(b"wasm_rt_init")?;
             wasm_rt_init();
-            Ok(Wasm2CBenchmark { lib })
+            Ok(Wasm2CBenchmark { lib: Arc::new(lib) })
         }
     }
 }
@@ -103,25 +101,40 @@ impl Drop for Wasm2CBenchmark {
     }
 }
 
-impl SingleThreadedRuntime for Wasm2CBenchmark {
-    fn run(&self, duration: Duration) -> usize {
+#[self_referencing]
+pub struct State {
+    library: Arc<libloading::Library>,
+    #[borrows(library)]
+    #[covariant]
+    allocate_module: libloading::Symbol<'this, unsafe extern "C" fn() -> *mut std::ffi::c_void>,
+    #[borrows(library)]
+    #[covariant]
+    add: libloading::Symbol<'this, unsafe extern "C" fn(*mut std::ffi::c_void, u32, u32)>,
+    #[borrows(library)]
+    #[covariant]
+    free_module: libloading::Symbol<'this, unsafe extern "C" fn(*mut std::ffi::c_void)>,
+}
+
+impl SimpleRuntime for Wasm2CBenchmark {
+    type State = State;
+
+    fn setup(&self) -> Self::State {
         unsafe {
-            let allocate_module: libloading::Symbol<
-                unsafe extern "C" fn() -> *mut std::ffi::c_void,
-            > = self.lib.get(b"allocate_module").unwrap();
-            let add: libloading::Symbol<unsafe extern "C" fn(*mut std::ffi::c_void, u32, u32)> =
-                self.lib.get(b"w2c_module_add").unwrap();
-            let free_module: libloading::Symbol<unsafe extern "C" fn(*mut std::ffi::c_void)> =
-                self.lib.get(b"free_module").unwrap();
-            let start = Instant::now();
-            let mut i = 0;
-            while start.elapsed() < duration {
-                let module = allocate_module();
-                add(module, 1, 2);
-                free_module(module);
-                i += 1;
+            StateBuilder {
+                library: self.lib.clone(),
+                allocate_module_builder: |lib| lib.get(b"allocate_module").unwrap(),
+                add_builder: |lib| lib.get(b"w2c_module_add").unwrap(),
+                free_module_builder: |lib| lib.get(b"free_module").unwrap(),
             }
-            i
+            .build()
+        }
+    }
+
+    fn iterate(&self, state: &mut Self::State) {
+        unsafe {
+            let module = (state.borrow_allocate_module())();
+            (state.borrow_add())(module, 1, 2);
+            (state.borrow_free_module())(module);
         }
     }
 }

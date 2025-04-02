@@ -9,16 +9,33 @@ def plot_benchmark(benchmark):
         approach = approach[:-4]
         with open(f"{benchmark}/{approach}.csv", 'r') as f:
             reader = csv.DictReader(f)
-            x = []
-            y = []
+            data = {}
             for row in reader:
-                x += [int(row['parallel'])]
-                y += [(1 / (float(row['iterations']) / (float(row['duration_ns'])/1e9))) * 1e6]
-            ax.plot(x, y, marker='o', label=approach)
+                iterations = float(row['iterations'])
+                duration_s = float(row['duration_ns'])/1e9
+                parallel = int(row['parallel'])
+                iterations_per_second = iterations / duration_s
+                if parallel not in data:
+                    data[parallel] = []
+                data[parallel] += [iterations_per_second]
+            X = []
+            Y = []
+            YMAX = []
+            YMIN = []
+            for n in data:
+                ys = data[n]
+                y = sum(ys)/len(ys)
+                ymax = max(ys)
+                ymin = min(ys)
+                X += [n]
+                Y += [y]
+                YMAX += [ymax - y]
+                YMIN += [y - ymin]
+            ax.errorbar(X, Y, yerr=[YMIN, YMAX], marker='o', label=approach)
     ax.set_xscale('log', base=2)
     ax.set_yscale('log')
-    ax.set_ylim(ymin=1e-2, ymax=1e4)
-    ax.set_ylabel('µs per iteration')
+    # ax.set_ylim(ymin=1e-2, ymax=1e4)
+    ax.set_ylabel('iterations per second per thread')
     ax.set_xlabel('parallelism')
     ax.set_title(benchmark)
     ax.legend()
