@@ -4,7 +4,6 @@ use benchmark::{
     self,
     arca::ArcaBenchmark,
     clone::{CloneBenchmark, CloneBenchmarkType},
-    function::FunctionBenchmark,
     v8::{NewIsolate, SameIsolateNewContext, SameIsolateSameContext, V8Benchmark},
     wasm2c::Wasm2CBenchmark,
     wasmtime::WasmtimeBenchmark,
