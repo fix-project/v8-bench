@@ -3,6 +3,8 @@ use std::{path::PathBuf, time::Duration};
 use benchmark::{
     self,
     arca::ArcaBenchmark,
+    clone::CloneBenchmark,
+    function::FunctionBenchmark,
     v8::{NewIsolate, SameIsolateNewContext, SameIsolateSameContext, V8Benchmark},
     wasm2c::Wasm2CBenchmark,
     wasmtime::WasmtimeBenchmark,
@@ -105,6 +107,16 @@ enum BenchmarkMode {
     ArcaSerial,
     /// Wasmtime
     Wasmtime,
+    /// clone
+    CloneBareMetal,
+    /// clone + new namespaces
+    CloneNewNamespace,
+    /// clone + new namespaces + change root
+    CloneChRoot,
+    /// clone3 + new namepaces + change root
+    Clone3ChRoot,
+    /// clone3 + new namespaces + change root + clone into cgroup
+    Clone3,
 }
 
 fn wat_benchmark(which: Program) -> &'static [u8] {
