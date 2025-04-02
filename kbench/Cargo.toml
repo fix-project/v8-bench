@@ -1,0 +1,15 @@
+cargo-features = ["per-package-target"]
+
+[package]
+name = "kbench"
+version = "0.1.0"
+edition = "2024"
+forced-target = "x86_64-unknown-none"
+
+[dependencies]
+kernel = { path = "../arca/kernel" }
+log = "0.4.27"
+
+[build-dependencies]
+anyhow = "1.0.97"
+cc = "1.2.17"

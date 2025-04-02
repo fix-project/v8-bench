@@ -1,3 +1,5 @@
+#![feature(allocator_api)]
+
 use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     time::Duration,
@@ -5,6 +7,7 @@ use std::{
 
 use serde::Serialize;
 
+pub mod arca;
 pub mod function;
 pub mod v8;
 pub mod wasm2c;

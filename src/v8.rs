@@ -1,6 +1,5 @@
 use std::{
     marker::PhantomData,
-    path::PathBuf,
     sync::LazyLock,
     time::{Duration, Instant},
 };
@@ -41,11 +40,10 @@ pub struct V8Benchmark<MODE: V8Mode> {
 }
 
 impl<MODE: V8Mode> V8Benchmark<MODE> {
-    pub fn new(wat: PathBuf) -> Result<Self> {
+    pub fn new(wat: &[u8]) -> Result<Self> {
         LazyLock::force(&ONE_TIME_INIT);
-        let data = std::fs::read(wat)?;
         Ok(V8Benchmark {
-            module: compile(&wabt::wat2wasm(&data)?),
+            module: compile(&wabt::wat2wasm(wat)?),
             _phantom: PhantomData,
         })
     }

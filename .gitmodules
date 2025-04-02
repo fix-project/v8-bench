@@ -1,3 +1,6 @@
 [submodule "third-party/readerwriterqueue"]
 	path = third-party/readerwriterqueue
 	url = https://github.com/cameron314/readerwriterqueue.git
+[submodule "arca"]
+	path = arca
+	url = https://github.com/fix-project/arca.git
