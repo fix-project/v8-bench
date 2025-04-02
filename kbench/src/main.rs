@@ -1,5 +1,6 @@
 #![no_main]
 #![no_std]
+#![feature(ptr_metadata)]
 
 use kernel::kvmclock;
 use kernel::macros::kmain;
@@ -14,11 +15,17 @@ use core::time::Duration;
 
 #[kmain]
 async fn kmain(argv: &[usize]) {
-    let &[offset, len, parallel, duration, output] = argv else {
+    let &[offset, len, duration, output_offset, output_length] = argv else {
         todo!();
     };
+    let parallel = output_length;
     let ptr: *mut u8 = PHYSICAL_ALLOCATOR.from_offset(offset);
-    let output: Arc<AtomicUsize> = unsafe { Arc::from_raw(PHYSICAL_ALLOCATOR.from_offset(output)) };
+    let output: Arc<[AtomicUsize]> = unsafe {
+        Arc::from_raw(core::ptr::from_raw_parts(
+            PHYSICAL_ALLOCATOR.from_offset::<AtomicUsize>(output_offset),
+            output_length,
+        ))
+    };
     let elf = unsafe {
         let slice = core::slice::from_raw_parts(ptr, len);
         let mut v = Vec::with_capacity(slice.len());
@@ -36,12 +43,9 @@ async fn kmain(argv: &[usize]) {
     for _ in 0..parallel {
         set.push(rt::spawn(run(duration, lambda.clone())));
     }
-    let mut results = vec![];
-    for x in set {
-        results.push(x.await);
+    for (x, y) in set.into_iter().zip(output.iter()) {
+        y.store(x.await, Ordering::SeqCst);
     }
-    let iters: usize = results.iter().sum();
-    output.store(iters, Ordering::SeqCst);
 }
 
 async fn run(duration: Duration, lambda: Lambda) -> usize {

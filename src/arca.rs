@@ -21,15 +21,20 @@ impl ArcaBenchmark {
 }
 
 impl Benchmark for ArcaBenchmark {
-    fn bench(&self, parallel: usize, duration: Duration) -> usize {
+    fn bench(&self, parallel: usize, duration: Duration) -> Vec<usize> {
         let mut mmap = Mmap::new(1 << 32);
         let cpus: usize = std::thread::available_parallelism().unwrap().into();
         let runtime = Runtime::new(cpus, &mut mmap, KERNEL_ELF.into());
         let value = {
             let allocator = runtime.allocator();
-            let output = Arc::new_in(AtomicUsize::new(0), allocator);
+            let mut output = Vec::with_capacity_in(parallel, allocator);
+            output.resize_with(parallel, || AtomicUsize::new(0));
+            let output: Arc<[AtomicUsize], _> = output.into_boxed_slice().into();
             let inner_output = output.clone();
-            let out_offset = allocator.to_offset(Arc::into_raw(inner_output));
+            let inner = Arc::into_raw(inner_output);
+            let out_offset = allocator.to_offset(inner.as_ptr());
+            let out_length = inner.len();
+            assert_eq!(out_length, parallel);
             let mut new_elf = Vec::with_capacity_in(self.elf.len(), allocator);
             new_elf.extend_from_slice(self.elf);
             let new_elf = new_elf.into_boxed_slice();
@@ -37,8 +42,8 @@ impl Benchmark for ArcaBenchmark {
             let len = new_elf.len();
             let offset = allocator.to_offset(ptr);
             let duration = duration.as_nanos().try_into().unwrap();
-            runtime.run(&[offset, len, parallel, duration, out_offset]);
-            output.load(Ordering::SeqCst)
+            runtime.run(&[offset, len, duration, out_offset, out_length]);
+            output.iter().map(|x| x.load(Ordering::SeqCst)).collect()
         };
         std::mem::drop(runtime);
         value

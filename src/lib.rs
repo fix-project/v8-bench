@@ -1,7 +1,8 @@
 #![feature(allocator_api)]
+#![feature(slice_ptr_get)]
 
 use std::{
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
@@ -21,24 +22,30 @@ pub struct Datum {
 }
 
 pub trait Benchmark {
-    fn bench(&self, parallel: usize, duration: Duration) -> usize;
+    fn bench(&self, parallel: usize, duration: Duration) -> Vec<usize>;
 
-    fn experiment(&self, parallel: usize, duration: Duration) -> Datum {
-        let iterations = self.bench(parallel, duration);
+    fn experiment(&self, parallel: usize, duration: Duration) -> Vec<Datum> {
+        let results = self.bench(parallel, duration);
         let duration_ns = duration.as_nanos();
 
-        let datum = Datum {
-            debug: cfg!(debug_assertions),
-            parallel,
-            iterations,
-            duration_ns,
-        };
-
-        let rate = iterations as f64 / duration.as_secs_f64();
+        let min = results.iter().min().unwrap();
+        let max = results.iter().max().unwrap();
+        let mean: usize = results.iter().sum::<usize>() / results.len();
+        let range = core::cmp::max(max - mean, mean - min);
+        let rate = mean as f64 / duration.as_secs_f64();
         println!(
-            "{parallel:4} threads: {rate:9.2} iters/second ({iterations:8} iters in {duration:?})",
+            "{parallel:4} threads: {rate:9.2} iters/thread/second ({mean:9}±{range:<7} iters/thread in {duration:?})",
         );
-        datum
+
+        results
+            .into_iter()
+            .map(|iterations| Datum {
+                debug: cfg!(debug_assertions),
+                parallel,
+                iterations,
+                duration_ns,
+            })
+            .collect()
     }
 
     fn collect_data(&self, max_parallel: usize, duration: Duration) -> Vec<Datum> {
@@ -46,7 +53,7 @@ pub trait Benchmark {
         let lg_max_parallel = max_parallel.ilog2();
         for lg_parallel in 0..lg_max_parallel + 1 {
             let parallel = 1 << lg_parallel;
-            data.push(self.experiment(parallel, duration));
+            data.extend(self.experiment(parallel, duration));
         }
         data
     }
@@ -57,9 +64,8 @@ pub trait SingleThreadedRuntime {
 }
 
 impl<T: SingleThreadedRuntime + Sync> Benchmark for T {
-    fn bench(&self, parallel: usize, duration: Duration) -> usize {
+    fn bench(&self, parallel: usize, duration: Duration) -> Vec<usize> {
         let begin = AtomicBool::new(false);
-        let iterations = AtomicUsize::new(0);
         std::thread::scope(|s| {
             let mut handles = vec![];
             for _ in 0..parallel {
@@ -67,7 +73,7 @@ impl<T: SingleThreadedRuntime + Sync> Benchmark for T {
                     while !begin.load(Ordering::SeqCst) {
                         std::thread::park();
                     }
-                    iterations.fetch_add(self.run(duration), Ordering::SeqCst);
+                    self.run(duration)
                 });
                 handles.push(handle);
             }
@@ -75,10 +81,7 @@ impl<T: SingleThreadedRuntime + Sync> Benchmark for T {
             for h in handles.iter() {
                 h.thread().unpark();
             }
-            for h in handles {
-                h.join().unwrap();
-            }
-        });
-        iterations.load(Ordering::SeqCst)
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        })
     }
 }
