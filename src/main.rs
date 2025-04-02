@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use benchmark::{
     self,
     arca::ArcaBenchmark,
-    clone::CloneBenchmark,
+    clone::{CloneBenchmark, CloneBenchmarkType},
     function::FunctionBenchmark,
     v8::{NewIsolate, SameIsolateNewContext, SameIsolateSameContext, V8Benchmark},
     wasm2c::Wasm2CBenchmark,
@@ -113,6 +113,15 @@ fn arca_benchmark(which: BenchmarkType) -> &'static [u8] {
     }
 }
 
+fn clone_benchmark(which: BenchmarkType) -> CloneBenchmarkType {
+    match which {
+        BenchmarkType::Add => CloneBenchmarkType::Add,
+        BenchmarkType::AddMem => CloneBenchmarkType::Add,
+        BenchmarkType::AddVec => CloneBenchmarkType::Add,
+        BenchmarkType::MatMul => CloneBenchmarkType::MatMul,
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let args = Args::parse();
@@ -148,14 +157,20 @@ fn main() -> anyhow::Result<()> {
                     }
                     BenchmarkMode::Arca => &ArcaBenchmark::new(arca_benchmark(program)),
                     BenchmarkMode::CloneBareMetal => {
-                        &CloneBenchmark::new(false, false, false, false)?
+                        &CloneBenchmark::new(clone_benchmark(program), false, false, false, false)?
                     }
                     BenchmarkMode::CloneNewNamespace => {
-                        &CloneBenchmark::new(true, false, false, false)?
+                        &CloneBenchmark::new(clone_benchmark(program), true, false, false, false)?
                     }
-                    BenchmarkMode::CloneChRoot => &CloneBenchmark::new(true, true, false, false)?,
-                    BenchmarkMode::Clone3ChRoot => &CloneBenchmark::new(true, true, true, false)?,
-                    BenchmarkMode::Clone3 => &CloneBenchmark::new(true, true, true, true)?,
+                    BenchmarkMode::CloneChRoot => {
+                        &CloneBenchmark::new(clone_benchmark(program), true, true, false, false)?
+                    }
+                    BenchmarkMode::Clone3ChRoot => {
+                        &CloneBenchmark::new(clone_benchmark(program), true, true, true, false)?
+                    }
+                    BenchmarkMode::Clone3 => {
+                        &CloneBenchmark::new(clone_benchmark(program), true, true, true, true)?
+                    }
                 }
             };
 
@@ -201,23 +216,53 @@ fn main() -> anyhow::Result<()> {
                     ),
                     (
                         "clone (bare metal)",
-                        Box::new(CloneBenchmark::new(false, false, false, false)?),
+                        Box::new(CloneBenchmark::new(
+                            clone_benchmark(program),
+                            false,
+                            false,
+                            false,
+                            false,
+                        )?),
                     ),
                     (
                         "clone (namespaces)",
-                        Box::new(CloneBenchmark::new(true, false, false, false)?),
+                        Box::new(CloneBenchmark::new(
+                            clone_benchmark(program),
+                            true,
+                            false,
+                            false,
+                            false,
+                        )?),
                     ),
                     (
                         "clone (namespaces, chroot)",
-                        Box::new(CloneBenchmark::new(true, true, false, false)?),
+                        Box::new(CloneBenchmark::new(
+                            clone_benchmark(program),
+                            true,
+                            true,
+                            false,
+                            false,
+                        )?),
                     ),
                     (
                         "clone3 (namespaces, chroot)",
-                        Box::new(CloneBenchmark::new(true, true, true, false)?),
+                        Box::new(CloneBenchmark::new(
+                            clone_benchmark(program),
+                            true,
+                            true,
+                            true,
+                            false,
+                        )?),
                     ),
                     (
                         "clone3 (namespaces, chroot, into cgroup)",
-                        Box::new(CloneBenchmark::new(true, true, true, true)?),
+                        Box::new(CloneBenchmark::new(
+                            clone_benchmark(program),
+                            true,
+                            true,
+                            true,
+                            true,
+                        )?),
                     ),
                 ]
             };
