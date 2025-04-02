@@ -1,5 +1,6 @@
 #![feature(allocator_api)]
 #![feature(slice_ptr_get)]
+#![feature(box_as_ptr)]
 
 use std::{
     sync::atomic::{AtomicUsize, Ordering},
@@ -9,6 +10,8 @@ use std::{
 use serde::Serialize;
 
 pub mod arca;
+pub mod clone;
+pub mod function;
 pub mod v8;
 pub mod wasm2c;
 
