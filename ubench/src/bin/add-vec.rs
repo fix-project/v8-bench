@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![allow(clippy::needless_range_loop)]
 
 extern crate user;
 

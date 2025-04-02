@@ -1,9 +1,12 @@
-use std::{time::Duration};
-use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+use std::time::Duration;
 
 use crate::Benchmark;
 
-use vmm::runtime::{Runtime, Mmap};
+use vmm::runtime::{Mmap, Runtime};
 
 const KERNEL_ELF: &[u8] = include_bytes!(env!("CARGO_BIN_FILE_KBENCH_kbench"));
 

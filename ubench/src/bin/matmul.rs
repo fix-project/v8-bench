@@ -9,9 +9,9 @@ static mut MEMORY: [u8; 65536] = [0; 65536];
 
 unsafe fn set(idx: usize, x: usize, y: usize, val: u32) {
     unsafe {
-        let base = SIZE*idx;
-        let offset = DIM*y + x;
-        let address = &mut MEMORY[(base + offset)*4];
+        let base = SIZE * idx;
+        let offset = DIM * y + x;
+        let address = &mut MEMORY[(base + offset) * 4];
         let p: &mut u32 = core::mem::transmute(address);
         *p = val;
     }
@@ -19,9 +19,9 @@ unsafe fn set(idx: usize, x: usize, y: usize, val: u32) {
 
 unsafe fn get(idx: usize, x: usize, y: usize) -> u32 {
     unsafe {
-        let base = SIZE*idx;
-        let offset = DIM*y + x;
-        let address = &mut MEMORY[(base + offset)*4];
+        let base = SIZE * idx;
+        let offset = DIM * y + x;
+        let address = &mut MEMORY[(base + offset) * 4];
         let p: &mut u32 = core::mem::transmute(address);
         *p
     }

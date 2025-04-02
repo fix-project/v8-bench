@@ -1,16 +1,16 @@
 #![no_main]
 #![no_std]
 
+use kernel::kvmclock;
 use kernel::macros::kmain;
 use kernel::prelude::*;
-use kernel::kvmclock;
 use kernel::rt;
 
 extern crate alloc;
 
-use core::time::Duration;
+use alloc::{sync::Arc, vec, vec::Vec};
 use core::sync::atomic::{AtomicUsize, Ordering};
-use alloc::{vec, vec::Vec, sync::Arc};
+use core::time::Duration;
 
 #[kmain]
 async fn kmain(argv: &[usize]) {
@@ -18,7 +18,7 @@ async fn kmain(argv: &[usize]) {
         todo!();
     };
     let ptr: *mut u8 = PHYSICAL_ALLOCATOR.from_offset(offset);
-    let output: Arc<AtomicUsize> = unsafe {Arc::from_raw(PHYSICAL_ALLOCATOR.from_offset(output))};
+    let output: Arc<AtomicUsize> = unsafe { Arc::from_raw(PHYSICAL_ALLOCATOR.from_offset(output)) };
     let elf = unsafe {
         let slice = core::slice::from_raw_parts(ptr, len);
         let mut v = Vec::with_capacity(slice.len());

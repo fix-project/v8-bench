@@ -2,10 +2,10 @@ use std::path::PathBuf;
 
 use benchmark::{
     self,
+    arca::ArcaBenchmark,
     function::FunctionBenchmark,
     v8::{NewIsolate, SameIsolateNewContext, SameIsolateSameContext, V8Benchmark},
     wasm2c::Wasm2CBenchmark,
-    arca::ArcaBenchmark,
 };
 
 use benchmark::Benchmark;
@@ -113,13 +113,21 @@ fn main() -> anyhow::Result<()> {
             let benchmark: &dyn Benchmark = unsafe {
                 match benchmark {
                     BenchmarkMode::Function => &FunctionBenchmark::new(),
-                    BenchmarkMode::V8 => &V8Benchmark::<SameIsolateSameContext>::new(wat_benchmark(program))?,
+                    BenchmarkMode::V8 => {
+                        &V8Benchmark::<SameIsolateSameContext>::new(wat_benchmark(program))?
+                    }
                     BenchmarkMode::V8ContextPerCall => {
                         &V8Benchmark::<SameIsolateNewContext>::new(wat_benchmark(program))?
                     }
-                    BenchmarkMode::V8IsolatePerCall => &V8Benchmark::<NewIsolate>::new(wat_benchmark(program))?,
-                    BenchmarkMode::Wasm2cBoundsChecked => &Wasm2CBenchmark::new(wat_benchmark(program), false)?,
-                    BenchmarkMode::Wasm2cMmap => &Wasm2CBenchmark::new(wat_benchmark(program), true)?,
+                    BenchmarkMode::V8IsolatePerCall => {
+                        &V8Benchmark::<NewIsolate>::new(wat_benchmark(program))?
+                    }
+                    BenchmarkMode::Wasm2cBoundsChecked => {
+                        &Wasm2CBenchmark::new(wat_benchmark(program), false)?
+                    }
+                    BenchmarkMode::Wasm2cMmap => {
+                        &Wasm2CBenchmark::new(wat_benchmark(program), true)?
+                    }
                     BenchmarkMode::Arca => &ArcaBenchmark::new(arca_benchmark(program)),
                 }
             };
@@ -138,15 +146,15 @@ fn main() -> anyhow::Result<()> {
                 vec![
                     (
                         "v8",
-                        Box::new(V8Benchmark::<SameIsolateSameContext>::new(
-                            wat_benchmark(program),
-                        )?),
+                        Box::new(V8Benchmark::<SameIsolateSameContext>::new(wat_benchmark(
+                            program,
+                        ))?),
                     ),
                     (
                         "v8-context-per-call",
-                        Box::new(V8Benchmark::<SameIsolateNewContext>::new(
-                            wat_benchmark(program),
-                        )?),
+                        Box::new(V8Benchmark::<SameIsolateNewContext>::new(wat_benchmark(
+                            program,
+                        ))?),
                     ),
                     (
                         "v8-isolate-per-call",
