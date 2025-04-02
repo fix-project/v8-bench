@@ -50,11 +50,13 @@ enum Commands {
 #[derive(clap::ValueEnum, Clone, Debug, Copy)]
 enum BenchmarkType {
     /// Add with no memory
-    AddNoMem,
+    Add,
     /// Add with 64KiB of memory
     AddMem,
     /// Add two 4096-element vectors
     AddVec,
+    /// Multiply two matrices
+    MatMul,
 }
 
 #[derive(clap::ValueEnum, Clone, Debug, Copy)]
@@ -77,17 +79,19 @@ enum BenchmarkMode {
 
 fn wat_benchmark(which: BenchmarkType) -> &'static [u8] {
     match which {
-        BenchmarkType::AddNoMem => include_bytes!("wat/add.wat"),
+        BenchmarkType::Add => include_bytes!("wat/add.wat"),
         BenchmarkType::AddMem => include_bytes!("wat/add-mem.wat"),
         BenchmarkType::AddVec => include_bytes!("wat/add-vec.wat"),
+        BenchmarkType::MatMul => include_bytes!("wat/matmul.wat"),
     }
 }
 
 fn arca_benchmark(which: BenchmarkType) -> &'static [u8] {
     match which {
-        BenchmarkType::AddNoMem => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_add")),
+        BenchmarkType::Add => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_add")),
         BenchmarkType::AddMem => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_add-mem")),
         BenchmarkType::AddVec => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_add-vec")),
+        BenchmarkType::MatMul => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_matmul")),
     }
 }
 
