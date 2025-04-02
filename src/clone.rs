@@ -47,12 +47,13 @@ impl SyscallReturnCode {
 pub enum CloneBenchmarkType {
     Add,
     AddVec,
-    MatMul,
+    MatMul64,
+    MatMul128,
 }
 
-const DIM: usize = 64;
+static mut DIM: usize = 64;
 static mut SIZE: usize = 0;
-static mut MEMORY: [u8; 65536] = [0; 65536];
+static mut MEMORY: [u8; 3 * 65536] = [0; 3 * 65536];
 
 unsafe fn set(idx: usize, x: usize, y: usize, val: u32) {
     unsafe {
@@ -74,12 +75,15 @@ unsafe fn get(idx: usize, x: usize, y: usize) -> u32 {
     }
 }
 
-extern "C" fn matmul(arg: *mut c_void) -> c_int {
+extern "C" fn matmul(arg: *mut c_void, dim: usize) -> c_int {
     let arg: &mut Arg = unsafe { &mut *(arg as *mut Arg) };
     let lhs = arg.0 as u32;
     let rhs = arg.1 as u32;
 
     unsafe {
+        DIM = dim;
+        SIZE = DIM * DIM;
+
         for y in 0..DIM {
             for x in 0..DIM {
                 set(0, x, y, lhs);
@@ -110,6 +114,14 @@ extern "C" fn matmul(arg: *mut c_void) -> c_int {
         }
         sum.try_into().unwrap()
     }
+}
+
+extern "C" fn matmul64(arg: *mut c_void) -> c_int {
+    matmul(arg, 64)
+}
+
+extern "C" fn matmul128(arg: *mut c_void) -> c_int {
+    matmul(arg, 128)
 }
 
 extern "C" fn add(arg: *mut c_void) -> c_int {
@@ -159,9 +171,16 @@ extern "C" fn addvec_containered(arg: *mut c_void) -> c_int {
     }
 }
 
-extern "C" fn matmul_containered(arg: *mut c_void) -> c_int {
+extern "C" fn matmul64_containered(arg: *mut c_void) -> c_int {
     match chenv() {
-        Ok(_) => matmul(arg),
+        Ok(_) => matmul64(arg),
+        Err(e) => e.raw_os_error().unwrap(),
+    }
+}
+
+extern "C" fn matmul128_containered(arg: *mut c_void) -> c_int {
+    match chenv() {
+        Ok(_) => matmul128(arg),
         Err(e) => e.raw_os_error().unwrap(),
     }
 }
@@ -248,11 +267,18 @@ impl CloneBenchmark {
                         addvec
                     }
                 }
-                CloneBenchmarkType::MatMul => {
+                CloneBenchmarkType::MatMul64 => {
                     if chenv {
-                        matmul_containered
+                        matmul64_containered
                     } else {
-                        matmul
+                        matmul64
+                    }
+                }
+                CloneBenchmarkType::MatMul128 => {
+                    if chenv {
+                        matmul128_containered
+                    } else {
+                        matmul128
                     }
                 }
             },
@@ -261,7 +287,13 @@ impl CloneBenchmark {
 }
 
 impl SingleThreadedRuntime for CloneBenchmark {
-    fn run(&self, duration: Duration) -> usize {
+    fn run(
+        &self,
+        warmup: Duration,
+        duration: Duration,
+        notready: &AtomicUsize,
+        notdone: &AtomicUsize,
+    ) -> usize {
         let idx = COUNTER.fetch_add(1, Ordering::SeqCst);
         let path = Path::new(CGROUP_DIR).join(format!("cg{}", idx));
 
@@ -289,11 +321,9 @@ impl SingleThreadedRuntime for CloneBenchmark {
 
         let mut arg = Box::new(Arg(7, 8));
         let arg_ptr: *mut Arg = Box::as_mut_ptr(&mut arg);
-        let mut i = 0;
         let mut stack: [u8; 1024] = [0; 1024];
 
-        let start = Instant::now();
-        while start.elapsed() < duration {
+        let mut once = || {
             let res = unsafe { self.clone_helper(&mut clone3_config, &mut stack, arg_ptr) };
             let res = match res {
                 Ok(child) => SyscallReturnCode(unsafe {
@@ -314,12 +344,34 @@ impl SingleThreadedRuntime for CloneBenchmark {
             if let Err(error) = res {
                 panic!("waitid error: {}", error)
             }
-            i += 1;
+        };
+
+        let warmup_start = Instant::now();
+        while warmup_start.elapsed() < warmup {
+            once();
+        }
+        notready.fetch_sub(1, Ordering::Release);
+        while notready.load(Ordering::Acquire) != 0 {
+            once();
+        }
+        let start = Instant::now();
+        let mut iters = 0;
+        loop {
+            once();
+            if start.elapsed() < duration {
+                iters += 1;
+            } else {
+                break;
+            }
+        }
+        notdone.fetch_sub(1, Ordering::Release);
+        while notready.load(Ordering::Acquire) != 0 {
+            once();
         }
 
         if self.clone_into_cgroup {
             let _ = remove_dir(&path);
         }
-        i
+        iters
     }
 }

@@ -11,7 +11,6 @@ use serde::Serialize;
 
 pub mod arca;
 pub mod clone;
-pub mod function;
 pub mod v8;
 pub mod wasm2c;
 

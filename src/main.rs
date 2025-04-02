@@ -4,7 +4,6 @@ use benchmark::{
     self,
     arca::ArcaBenchmark,
     clone::{CloneBenchmark, CloneBenchmarkType},
-    function::FunctionBenchmark,
     v8::{NewIsolate, SameIsolateNewContext, SameIsolateSameContext, V8Benchmark},
     wasm2c::Wasm2CBenchmark,
 };
@@ -118,7 +117,8 @@ fn clone_benchmark(which: BenchmarkType) -> CloneBenchmarkType {
         BenchmarkType::Add => CloneBenchmarkType::Add,
         BenchmarkType::AddMem => CloneBenchmarkType::Add,
         BenchmarkType::AddVec => CloneBenchmarkType::Add,
-        BenchmarkType::MatMul => CloneBenchmarkType::MatMul,
+        BenchmarkType::MatMul64 => CloneBenchmarkType::MatMul64,
+        BenchmarkType::MatMul128 => CloneBenchmarkType::MatMul128,
     }
 }
 
