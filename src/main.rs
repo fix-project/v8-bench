@@ -55,8 +55,10 @@ enum BenchmarkType {
     AddMem,
     /// Add two 4096-element vectors
     AddVec,
-    /// Multiply two matrices
-    MatMul,
+    /// Multiply two 64x64 matrices
+    MatMul64,
+    /// Multiply two 128x128 matrices
+    MatMul128,
 }
 
 #[derive(clap::ValueEnum, Clone, Debug, Copy)]
@@ -82,7 +84,8 @@ fn wat_benchmark(which: BenchmarkType) -> &'static [u8] {
         BenchmarkType::Add => include_bytes!("wat/add.wat"),
         BenchmarkType::AddMem => include_bytes!("wat/add-mem.wat"),
         BenchmarkType::AddVec => include_bytes!("wat/add-vec.wat"),
-        BenchmarkType::MatMul => include_bytes!("wat/matmul.wat"),
+        BenchmarkType::MatMul64 => include_bytes!("wat/matmul64.wat"),
+        BenchmarkType::MatMul128 => include_bytes!("wat/matmul128.wat"),
     }
 }
 
@@ -91,7 +94,8 @@ fn arca_benchmark(which: BenchmarkType) -> &'static [u8] {
         BenchmarkType::Add => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_add")),
         BenchmarkType::AddMem => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_add-mem")),
         BenchmarkType::AddVec => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_add-vec")),
-        BenchmarkType::MatMul => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_matmul")),
+        BenchmarkType::MatMul64 => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_matmul64")),
+        BenchmarkType::MatMul128 => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_matmul128")),
     }
 }
 
@@ -180,6 +184,7 @@ fn main() -> anyhow::Result<()> {
                 file.push(label);
                 file.set_extension("csv");
                 let mut writer = csv::Writer::from_path(file)?;
+                log::info!("running benchmark {label}");
                 for datum in benchmark.collect_data(parallel, duration) {
                     writer.serialize(datum)?;
                 }
