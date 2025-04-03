@@ -1,4 +1,4 @@
-use std::{process::Command, sync::Arc};
+use std::{mem::MaybeUninit, process::Command, sync::Arc};
 
 use crate::SimpleRuntime;
 use anyhow::Result;
@@ -104,37 +104,51 @@ impl Drop for Wasm2CBenchmark {
 #[self_referencing]
 pub struct State {
     library: Arc<libloading::Library>,
-    #[borrows(library)]
-    #[covariant]
-    allocate_module: libloading::Symbol<'this, unsafe extern "C" fn() -> *mut std::ffi::c_void>,
+    memory: Box<[MaybeUninit<u8>]>,
     #[borrows(library)]
     #[covariant]
     add: libloading::Symbol<'this, unsafe extern "C" fn(*mut std::ffi::c_void, u32, u32)>,
     #[borrows(library)]
     #[covariant]
-    free_module: libloading::Symbol<'this, unsafe extern "C" fn(*mut std::ffi::c_void)>,
+    instantiate: libloading::Symbol<'this, unsafe extern "C" fn(*mut std::ffi::c_void)>,
+    #[borrows(library)]
+    #[covariant]
+    free: libloading::Symbol<'this, unsafe extern "C" fn(*mut std::ffi::c_void)>,
 }
 
 impl SimpleRuntime for Wasm2CBenchmark {
     type State = State;
 
     fn setup(&self) -> Self::State {
+        let library = self.lib.clone();
         unsafe {
+            let module_size: libloading::Symbol<unsafe extern "C" fn() -> usize> =
+                library.get(b"module_size").unwrap();
+            let size = module_size();
+            let memory = Box::new_uninit_slice(size);
             StateBuilder {
-                library: self.lib.clone(),
-                allocate_module_builder: |lib| lib.get(b"allocate_module").unwrap(),
+                library,
+                memory,
                 add_builder: |lib| lib.get(b"w2c_module_add").unwrap(),
-                free_module_builder: |lib| lib.get(b"free_module").unwrap(),
+                instantiate_builder: |lib| lib.get(b"wasm2c_module_instantiate").unwrap(),
+                free_builder: |lib| lib.get(b"wasm2c_module_free").unwrap(),
             }
             .build()
         }
     }
 
     fn iterate(&self, state: &mut Self::State) {
-        unsafe {
-            let module = (state.borrow_allocate_module())();
-            (state.borrow_add())(module, 1, 2);
-            (state.borrow_free_module())(module);
-        }
+        state.with_mut(|fields| {
+            let instantiate = fields.instantiate;
+            let add = fields.add;
+            let free = fields.free;
+            let module: *mut MaybeUninit<u8> = fields.memory.as_mut_ptr();
+            let module = module as *mut std::ffi::c_void;
+            unsafe {
+                instantiate(module);
+                add(module, 1, 2);
+                free(module);
+            }
+        })
     }
 }

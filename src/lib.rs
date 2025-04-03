@@ -116,8 +116,8 @@ impl<T: SimpleRuntime> SingleThreadedRuntime for T {
 
 impl<T: SingleThreadedRuntime + Sync> Benchmark for T {
     fn bench(&self, parallel: usize, warmup: Duration, duration: Duration) -> Vec<usize> {
-        let notready = AtomicUsize::new(parallel);
-        let notdone = AtomicUsize::new(parallel);
+        let notready = Box::new(AtomicUsize::new(parallel));
+        let notdone = Box::new(AtomicUsize::new(parallel));
         std::thread::scope(|s| {
             let mut handles = vec![];
             for _ in 0..parallel {

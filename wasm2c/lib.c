@@ -3,13 +3,6 @@
 
 #include "module.h"
 
-void *allocate_module() {
-  w2c_module *module = malloc(sizeof(w2c_module));
-  wasm2c_module_instantiate(module);
-  return module;
+size_t module_size(void) {
+  return sizeof(w2c_module);
 }
-
-void free_module(void *module) {
-  wasm2c_module_free(module);
-}
-

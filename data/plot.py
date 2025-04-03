@@ -5,8 +5,10 @@ import os
 def plot_benchmark(benchmark):
     fig = plt.figure()
     ax = fig.subplots()
+    print(benchmark)
     for approach in sorted(os.listdir(benchmark)):
         approach = approach[:-4]
+        print(f"{benchmark}/{approach}")
         with open(f"{benchmark}/{approach}.csv", 'r') as f:
             reader = csv.DictReader(f)
             data = {}
@@ -17,25 +19,19 @@ def plot_benchmark(benchmark):
                 iterations_per_second = iterations / duration_s
                 if parallel not in data:
                     data[parallel] = []
-                data[parallel] += [iterations_per_second]
+                data[parallel] += [1e6/iterations_per_second]
             X = []
             Y = []
-            YMAX = []
-            YMIN = []
             for n in data:
                 ys = data[n]
-                y = sum(ys)/len(ys)
-                ymax = max(ys)
-                ymin = min(ys)
+                y = sum(ys)
                 X += [n]
                 Y += [y]
-                YMAX += [ymax - y]
-                YMIN += [y - ymin]
-            ax.errorbar(X, Y, yerr=[YMIN, YMAX], marker='o', label=approach)
+            ax.plot(X, Y, marker='o', label=approach)
     ax.set_xscale('log', base=2)
     ax.set_yscale('log')
     # ax.set_ylim(ymin=1e-2, ymax=1e4)
-    ax.set_ylabel('iterations per second per thread')
+    ax.set_ylabel('µS per iteration')
     ax.set_xlabel('parallelism')
     ax.set_title(benchmark)
     ax.legend()
