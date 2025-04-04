@@ -2,7 +2,6 @@
 #![no_std]
 #![feature(ptr_metadata)]
 
-use alloc::collections::btree_map::BTreeMap;
 use kernel::kvmclock;
 use kernel::macros::kmain;
 use kernel::prelude::*;
@@ -56,8 +55,8 @@ async fn kmain(argv: &[usize]) {
     let mut set = Vec::with_capacity(parallel);
     let notready = Arc::new(AtomicUsize::new(parallel));
     let notdone = Arc::new(AtomicUsize::new(parallel));
-    kernel::profile::reset();
-    kernel::profile::begin();
+    // kernel::profile::reset();
+    // kernel::profile::begin();
     for _ in 0..parallel {
         set.push(rt::spawn(run(
             warmup,
@@ -70,7 +69,7 @@ async fn kmain(argv: &[usize]) {
     for (x, y) in set.into_iter().zip(output.iter()) {
         y.store(x.await, Ordering::SeqCst);
     }
-    kernel::profile::end();
+    // kernel::profile::end();
     // profile();
 }
 
@@ -126,37 +125,4 @@ async fn run(
         once().await;
     }
     iters
-}
-
-#[allow(unused)]
-fn profile() {
-    log::info!("--- MOST FREQUENT FUNCTIONS ---");
-    let entries = kernel::profile::entries();
-    let entries = entries
-        .into_iter()
-        .map(|(p, x)| {
-            if p.is_null() {
-                (("USER CODE".into(), 0), x)
-            } else {
-                (
-                    kernel::host::symname(p).unwrap_or_else(|| ("???".into(), 0)),
-                    x,
-                )
-            }
-        })
-        .fold(BTreeMap::new(), |mut map, ((name, _offset), count)| {
-            map.entry(name).and_modify(|e| *e += count).or_insert(count);
-            map
-        });
-    let mut entries = Vec::from_iter(entries);
-    entries.sort_by_key(|(_name, count)| *count);
-    entries.reverse();
-    let total: usize = entries.iter().map(|(_, count)| count).sum();
-    for (i, &(ref name, count)) in entries.iter().take(8).enumerate() {
-        log::info!(
-            "\t{i}: {count:6} ({:3.2}%)- {name}",
-            count as f64 / total as f64 * 100.
-        );
-    }
-    log::info!("-------------------------------");
 }
