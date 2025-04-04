@@ -84,6 +84,8 @@ enum BenchmarkMode {
     Wasm2cMmap,
     /// Arca
     Arca,
+    /// Arca with TLB Shootdowns
+    ArcaShootdown,
 }
 
 fn wat_benchmark(which: BenchmarkType) -> &'static [u8] {
@@ -129,7 +131,8 @@ fn run_benchmark(
                 &Wasm2CBenchmark::new(wat_benchmark(program), false)?
             }
             BenchmarkMode::Wasm2cMmap => &Wasm2CBenchmark::new(wat_benchmark(program), true)?,
-            BenchmarkMode::Arca => &ArcaBenchmark::new(arca_benchmark(program)),
+            BenchmarkMode::Arca => &ArcaBenchmark::new(arca_benchmark(program), false),
+            BenchmarkMode::ArcaShootdown => &ArcaBenchmark::new(arca_benchmark(program), true),
         }
     };
 
@@ -160,6 +163,7 @@ fn main() -> anyhow::Result<()> {
         ("wasm2c-bounds-checked", BenchmarkMode::Wasm2cBoundsChecked),
         ("wasm2c-mmap", BenchmarkMode::Wasm2cMmap),
         ("arca", BenchmarkMode::Arca),
+        ("arca-shootdown", BenchmarkMode::ArcaShootdown),
     ];
 
     let programs = &[

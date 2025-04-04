@@ -12,11 +12,12 @@ const KERNEL_ELF: &[u8] = include_bytes!(env!("CARGO_BIN_FILE_KBENCH_kbench"));
 
 pub struct ArcaBenchmark {
     elf: &'static [u8],
+    tlb_shootdown: bool,
 }
 
 impl ArcaBenchmark {
-    pub fn new(elf: &'static [u8]) -> Self {
-        ArcaBenchmark { elf }
+    pub fn new(elf: &'static [u8], tlb_shootdown: bool) -> Self {
+        ArcaBenchmark { elf, tlb_shootdown }
     }
 }
 
@@ -43,7 +44,15 @@ impl Benchmark for ArcaBenchmark {
             let offset = allocator.to_offset(ptr);
             let duration = duration.as_nanos().try_into().unwrap();
             let warmup = warmup.as_nanos().try_into().unwrap();
-            runtime.run(&[offset, len, warmup, duration, out_offset, out_length]);
+            runtime.run(&[
+                offset,
+                len,
+                warmup,
+                duration,
+                out_offset,
+                out_length,
+                self.tlb_shootdown as usize,
+            ]);
             output.iter().map(|x| x.load(Ordering::SeqCst)).collect()
         };
         std::mem::drop(runtime);

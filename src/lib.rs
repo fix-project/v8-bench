@@ -27,14 +27,10 @@ pub trait Benchmark {
         let results = self.bench(parallel, warmup, duration);
         let duration_ns = duration.as_nanos();
 
-        let min = results.iter().min().unwrap();
-        let max = results.iter().max().unwrap();
-        let mean: usize = results.iter().sum::<usize>() / results.len();
-        let range = core::cmp::max(max - mean, mean - min);
-        let rate = mean as f64 / duration.as_secs_f64();
-        println!(
-            "{parallel:4} threads: {rate:9.2} iters/thread/second ({mean:9}±{range:<7} iters/thread in {duration:?})",
-        );
+        let sum: usize = results.iter().sum::<usize>();
+        let rate = sum as f64 / duration.as_secs_f64();
+        let frequency = duration / sum as u32;
+        println!("{parallel:4} threads: {rate:9.2} iters/second ({frequency:?} per iteration)",);
 
         results
             .into_iter()

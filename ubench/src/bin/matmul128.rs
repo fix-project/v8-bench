@@ -5,7 +5,7 @@ extern crate user;
 
 const DIM: usize = 128;
 static mut SIZE: usize = 0;
-static mut MEMORY: [u8; 3*65536] = [0; 3*65536];
+static mut MEMORY: [u8; 3 * 65536] = [0; 3 * 65536];
 
 unsafe fn set(idx: usize, x: usize, y: usize, val: u32) {
     unsafe {
