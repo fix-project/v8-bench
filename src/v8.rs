@@ -55,9 +55,7 @@ impl<MODE: V8Mode> V8Benchmark<MODE> {
 impl SimpleRuntime for V8Benchmark<NewIsolate> {
     type State = ();
 
-    fn setup(&self) -> Self::State {
-        ()
-    }
+    fn setup(&self) -> Self::State {}
 
     fn iterate(&self, _state: &mut Self::State) {
         let isolate = &mut v8::Isolate::new(Default::default());

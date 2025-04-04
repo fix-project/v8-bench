@@ -16,17 +16,18 @@ def plot_benchmark(benchmark):
                 iterations = float(row['iterations'])
                 duration_s = float(row['duration_ns'])/1e9
                 parallel = int(row['parallel'])
-                iterations_per_second = iterations / duration_s
                 if parallel not in data:
                     data[parallel] = []
-                data[parallel] += [1e6/iterations_per_second]
+                data[parallel] += [(iterations, duration_s)]
             X = []
             Y = []
             for n in data:
                 ys = data[n]
-                y = sum(ys)
+                iterations = sum(y[0] for y in ys)
+                time = ys[0][1]
+                rate = time / iterations * 1e6
                 X += [n]
-                Y += [y]
+                Y += [rate]
             ax.plot(X, Y, marker='o', label=approach)
     ax.set_xscale('log', base=2)
     ax.set_yscale('log')

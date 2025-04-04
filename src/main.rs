@@ -35,16 +35,22 @@ enum Commands {
     Run {
         /// Which approach to benchmark
         benchmark: BenchmarkMode,
-        /// Which benchmark to run
-        program: BenchmarkType,
+        /// Which program to run
+        program: Program,
         /// Output file
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
     /// Run all available benchmarks with the same settings
-    RunAll {
+    RunProgram {
+        /// Which program to run
+        program: Program,
+        /// Output directory
+        output: PathBuf,
+    },
+    RunBenchmark {
         /// Which benchmark to run
-        program: BenchmarkType,
+        benchmark: BenchmarkMode,
         /// Output directory
         output: PathBuf,
     },
@@ -55,7 +61,7 @@ enum Commands {
 }
 
 #[derive(clap::ValueEnum, Clone, Debug, Copy)]
-enum BenchmarkType {
+enum Program {
     /// Add with no memory
     Add,
     /// Add with 64KiB of memory
@@ -70,7 +76,7 @@ enum BenchmarkType {
     MatMul128,
 }
 
-#[derive(clap::ValueEnum, Clone, Debug, Copy)]
+#[derive(clap::ValueEnum, Clone, Debug, Copy, PartialEq, Eq)]
 enum BenchmarkMode {
     /// V8 with one isolate per thread and one context per thread
     V8,
@@ -86,25 +92,29 @@ enum BenchmarkMode {
     Arca,
     /// Arca with TLB Shootdowns
     ArcaShootdown,
+    /// Arca with serialized page table operations
+    ArcaLock,
+    /// Arca with serialized page table operations and TLB shootdowns
+    ArcaSerial,
 }
 
-fn wat_benchmark(which: BenchmarkType) -> &'static [u8] {
+fn wat_benchmark(which: Program) -> &'static [u8] {
     match which {
-        BenchmarkType::Add => include_bytes!("wat/add.wat"),
-        BenchmarkType::AddMem => include_bytes!("wat/add-mem.wat"),
-        BenchmarkType::AddVec => include_bytes!("wat/add-vec.wat"),
-        BenchmarkType::MatMul64 => include_bytes!("wat/matmul64.wat"),
-        BenchmarkType::MatMul128 => include_bytes!("wat/matmul128.wat"),
+        Program::Add => include_bytes!("wat/add.wat"),
+        Program::AddMem => include_bytes!("wat/add-mem.wat"),
+        Program::AddVec => include_bytes!("wat/add-vec.wat"),
+        Program::MatMul64 => include_bytes!("wat/matmul64.wat"),
+        Program::MatMul128 => include_bytes!("wat/matmul128.wat"),
     }
 }
 
-fn arca_benchmark(which: BenchmarkType) -> &'static [u8] {
+fn arca_benchmark(which: Program) -> &'static [u8] {
     match which {
-        BenchmarkType::Add => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_add")),
-        BenchmarkType::AddMem => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_add-mem")),
-        BenchmarkType::AddVec => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_add-vec")),
-        BenchmarkType::MatMul64 => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_matmul64")),
-        BenchmarkType::MatMul128 => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_matmul128")),
+        Program::Add => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_add")),
+        Program::AddMem => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_add-mem")),
+        Program::AddVec => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_add-vec")),
+        Program::MatMul64 => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_matmul64")),
+        Program::MatMul128 => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_matmul128")),
     }
 }
 
@@ -113,7 +123,7 @@ fn run_benchmark(
     warmup: Duration,
     duration: Duration,
     benchmark: BenchmarkMode,
-    program: BenchmarkType,
+    program: Program,
     output: Option<PathBuf>,
 ) -> Result<()> {
     let benchmark: &dyn Benchmark = unsafe {
@@ -131,8 +141,12 @@ fn run_benchmark(
                 &Wasm2CBenchmark::new(wat_benchmark(program), false)?
             }
             BenchmarkMode::Wasm2cMmap => &Wasm2CBenchmark::new(wat_benchmark(program), true)?,
-            BenchmarkMode::Arca => &ArcaBenchmark::new(arca_benchmark(program), false),
-            BenchmarkMode::ArcaShootdown => &ArcaBenchmark::new(arca_benchmark(program), true),
+            BenchmarkMode::Arca => &ArcaBenchmark::new(arca_benchmark(program), false, false),
+            BenchmarkMode::ArcaShootdown => {
+                &ArcaBenchmark::new(arca_benchmark(program), true, false)
+            }
+            BenchmarkMode::ArcaLock => &ArcaBenchmark::new(arca_benchmark(program), false, true),
+            BenchmarkMode::ArcaSerial => &ArcaBenchmark::new(arca_benchmark(program), true, true),
         }
     };
 
@@ -164,13 +178,15 @@ fn main() -> anyhow::Result<()> {
         ("wasm2c-mmap", BenchmarkMode::Wasm2cMmap),
         ("arca", BenchmarkMode::Arca),
         ("arca-shootdown", BenchmarkMode::ArcaShootdown),
+        ("arca-lock", BenchmarkMode::ArcaLock),
+        ("arca-serial", BenchmarkMode::ArcaSerial),
     ];
 
     let programs = &[
-        ("add", BenchmarkType::Add),
-        ("add-mem", BenchmarkType::AddMem),
-        ("matmul64", BenchmarkType::MatMul64),
-        ("matmul128", BenchmarkType::MatMul128),
+        ("add", Program::Add),
+        ("add-mem", Program::AddMem),
+        ("matmul64", Program::MatMul64),
+        ("matmul128", Program::MatMul128),
     ];
 
     match args.command {
@@ -181,7 +197,7 @@ fn main() -> anyhow::Result<()> {
         } => {
             run_benchmark(parallel, warmup, duration, benchmark, program, output)?;
         }
-        Commands::RunAll { output, program } => {
+        Commands::RunProgram { output, program } => {
             std::fs::create_dir_all(&output)?;
             for (i, (label, benchmark)) in benchmarks.iter().enumerate() {
                 let benchmarks_left = (benchmarks.len() - i) as u32;
@@ -193,6 +209,26 @@ fn main() -> anyhow::Result<()> {
                 file.push(label);
                 file.set_extension("csv");
                 run_benchmark(parallel, warmup, duration, *benchmark, program, Some(file))?;
+            }
+        }
+        Commands::RunBenchmark { output, benchmark } => {
+            for (i, (label, program)) in programs.iter().enumerate() {
+                let name = benchmarks
+                    .iter()
+                    .find_map(|x| if x.1 == benchmark { Some(x.0) } else { None })
+                    .unwrap();
+                let mut output = output.clone();
+                output.push(label);
+                std::fs::create_dir_all(&output)?;
+                let benchmarks_left = (programs.len() - i) as u32;
+                let iterations = parallel.ilog2();
+                let time = duration + warmup;
+                let time_left = time * benchmarks_left * iterations;
+                log::info!("running program \"{label}\"; {time_left:?} remaining");
+                let mut file = output;
+                file.push(name);
+                file.set_extension("csv");
+                run_benchmark(parallel, warmup, duration, benchmark, *program, Some(file))?;
             }
         }
         Commands::Everything { directory } => {

@@ -13,11 +13,16 @@ const KERNEL_ELF: &[u8] = include_bytes!(env!("CARGO_BIN_FILE_KBENCH_kbench"));
 pub struct ArcaBenchmark {
     elf: &'static [u8],
     tlb_shootdown: bool,
+    serialization: bool,
 }
 
 impl ArcaBenchmark {
-    pub fn new(elf: &'static [u8], tlb_shootdown: bool) -> Self {
-        ArcaBenchmark { elf, tlb_shootdown }
+    pub fn new(elf: &'static [u8], tlb_shootdown: bool, serialization: bool) -> Self {
+        ArcaBenchmark {
+            elf,
+            tlb_shootdown,
+            serialization,
+        }
     }
 }
 
@@ -52,6 +57,7 @@ impl Benchmark for ArcaBenchmark {
                 out_offset,
                 out_length,
                 self.tlb_shootdown as usize,
+                self.serialization as usize,
             ]);
             output.iter().map(|x| x.load(Ordering::SeqCst)).collect()
         };

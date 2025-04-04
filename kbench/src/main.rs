@@ -24,11 +24,13 @@ async fn kmain(argv: &[usize]) {
         output_offset,
         output_length,
         tlb_shootdowns,
+        serialization,
     ] = argv
     else {
         todo!();
     };
     kernel::set_tlb_shootdowns_enabled(tlb_shootdowns == 1);
+    kernel::set_serialization(serialization == 1);
     let parallel = output_length;
     let ptr: *mut u8 = PHYSICAL_ALLOCATOR.from_offset(offset);
     let output: Arc<[AtomicUsize]> = unsafe {
