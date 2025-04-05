@@ -1,10 +1,13 @@
 [workspace]
-members = ["kbench", "ubench"]
+members = [ "jpeg-wasm","kbench", "ubench"]
 
 [package]
 name = "benchmark"
 version = "0.1.0"
 edition = "2024"
+
+[features]
+debugcon = ["kbench/debugcon"]
 
 [dependencies]
 vmm = { path = "arca/vmm" }
@@ -12,6 +15,7 @@ common = { path = "arca/common" }
 user = { path = "arca/user", artifact = "bin", target = "x86_64-unknown-none" }
 kbench = { path = "kbench", artifact = "bin", target = "x86_64-unknown-none" }
 ubench = { path = "ubench", artifact = "bin", target = "x86_64-unknown-none" }
+jpeg-wasm = { path = "jpeg-wasm", artifact = "bin", target = "wasm32-unknown-unknown" }
 anyhow = "1.0.97"
 clap = { version = "4.5.32", features = ["derive"] }
 csv = "1.3.1"

@@ -8,6 +8,8 @@ def plot_benchmark(benchmark):
     print(benchmark)
     for approach in sorted(os.listdir(benchmark)):
         approach = approach[:-4]
+        if benchmark == 'jpeg' and approach not in ['arca', 'v8', 'wasm2c-mmap']:
+            continue
         print(f"{benchmark}/{approach}")
         with open(f"{benchmark}/{approach}.csv", 'r') as f:
             reader = csv.DictReader(f)
@@ -24,8 +26,11 @@ def plot_benchmark(benchmark):
             for n in data:
                 ys = data[n]
                 iterations = sum(y[0] for y in ys)
-                time = ys[0][1]
-                rate = time / iterations * 1e6
+                if iterations != 0:
+                    time = ys[0][1]
+                    rate = time / iterations * 1e6
+                else:
+                    rate = float('inf')
                 X += [n]
                 Y += [rate]
             ax.plot(X, Y, marker='o', label=approach)

@@ -16,7 +16,11 @@ impl Wasm2CBenchmark {
     ///
     /// This module must expose a function named "add" which takes two i32s and returns an i32.
     pub unsafe fn new(wat: &[u8], hardware: bool) -> Result<Self> {
-        let wasm = wabt::wat2wasm(wat)?;
+        let wasm = if &wat[..4] == b"\0asm" {
+            wat
+        } else {
+            &wabt::wat2wasm(wat)?
+        };
         let temp_dir = tempfile::tempdir()?;
         let mut wasm_file = temp_dir.path().to_path_buf();
         wasm_file.push("module.wasm");

@@ -28,7 +28,7 @@ impl ArcaBenchmark {
 
 impl Benchmark for ArcaBenchmark {
     fn bench(&self, parallel: usize, warmup: Duration, duration: Duration) -> Vec<usize> {
-        let mut mmap = Mmap::new(1 << 32);
+        let mut mmap = Mmap::new(1 << 35);
         let cpus: usize = std::thread::available_parallelism().unwrap().into();
         let runtime = Runtime::new(cpus, &mut mmap, KERNEL_ELF.into());
         let value = {

@@ -45,8 +45,13 @@ pub struct V8Benchmark<MODE: V8Mode> {
 impl<MODE: V8Mode> V8Benchmark<MODE> {
     pub fn new(wat: &[u8]) -> Result<Self> {
         LazyLock::force(&ONE_TIME_INIT);
+        let wasm = if &wat[..4] == b"\0asm" {
+            wat
+        } else {
+            &wabt::wat2wasm(wat)?
+        };
         Ok(V8Benchmark {
-            module: compile(&wabt::wat2wasm(wat)?),
+            module: compile(wasm),
             _phantom: PhantomData,
         })
     }

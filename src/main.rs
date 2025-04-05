@@ -74,6 +74,8 @@ enum Program {
     /// Multiply two 128x128 matrices
     #[clap(name = "matmul128")]
     MatMul128,
+    /// Resize a JPEG image
+    Jpeg,
 }
 
 #[derive(clap::ValueEnum, Clone, Debug, Copy, PartialEq, Eq)]
@@ -105,6 +107,7 @@ fn wat_benchmark(which: Program) -> &'static [u8] {
         Program::AddVec => include_bytes!("wat/add-vec.wat"),
         Program::MatMul64 => include_bytes!("wat/matmul64.wat"),
         Program::MatMul128 => include_bytes!("wat/matmul128.wat"),
+        Program::Jpeg => include_bytes!(env!("CARGO_BIN_FILE_JPEG_WASM_jpeg-wasm")),
     }
 }
 
@@ -115,6 +118,7 @@ fn arca_benchmark(which: Program) -> &'static [u8] {
         Program::AddVec => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_add-vec")),
         Program::MatMul64 => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_matmul64")),
         Program::MatMul128 => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_matmul128")),
+        Program::Jpeg => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_jpeg")),
     }
 }
 

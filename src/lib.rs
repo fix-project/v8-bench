@@ -29,8 +29,12 @@ pub trait Benchmark {
 
         let sum: usize = results.iter().sum::<usize>();
         let rate = sum as f64 / duration.as_secs_f64();
-        let frequency = duration / sum as u32;
-        println!("{parallel:4} threads: {rate:9.2} iters/second ({frequency:?} per iteration)",);
+        if sum != 0 {
+            let frequency = duration / sum as u32;
+            println!("{parallel:4} threads: {rate:9.2} iters/second ({frequency:?} per iteration)",);
+        } else {
+            println!("{parallel:4} threads: {rate:9.2} iters/second (>1s per iteration)",);
+        }
 
         results
             .into_iter()

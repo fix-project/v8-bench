@@ -1,11 +1,10 @@
 cargo-features = ["per-package-target"]
 
 [package]
-name = "ubench"
+name = "jpeg-wasm"
 version = "0.1.0"
 edition = "2024"
-forced-target = "x86_64-unknown-none"
+forced-target = "wasm32-unknown-unknown"
 
 [dependencies]
-user = { path = "../arca/user" }
 zune-jpeg = { version = "0.4.14", default-features = false }
