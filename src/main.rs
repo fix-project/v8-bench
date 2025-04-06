@@ -5,6 +5,7 @@ use benchmark::{
     arca::ArcaBenchmark,
     v8::{NewIsolate, SameIsolateNewContext, SameIsolateSameContext, V8Benchmark},
     wasm2c::Wasm2CBenchmark,
+    wasmtime::WasmtimeBenchmark,
 };
 
 use benchmark::Benchmark;
@@ -98,6 +99,8 @@ enum BenchmarkMode {
     ArcaLock,
     /// Arca with serialized page table operations and TLB shootdowns
     ArcaSerial,
+    /// Wasmtime
+    Wasmtime,
 }
 
 fn wat_benchmark(which: Program) -> &'static [u8] {
@@ -151,6 +154,7 @@ fn run_benchmark(
             }
             BenchmarkMode::ArcaLock => &ArcaBenchmark::new(arca_benchmark(program), false, true),
             BenchmarkMode::ArcaSerial => &ArcaBenchmark::new(arca_benchmark(program), true, true),
+            BenchmarkMode::Wasmtime => &WasmtimeBenchmark::new(wat_benchmark(program))?,
         }
     };
 
@@ -184,6 +188,7 @@ fn main() -> anyhow::Result<()> {
         ("arca-shootdown", BenchmarkMode::ArcaShootdown),
         ("arca-lock", BenchmarkMode::ArcaLock),
         ("arca-serial", BenchmarkMode::ArcaSerial),
+        ("wasmtime", BenchmarkMode::Wasmtime),
     ];
 
     let programs = &[
@@ -191,6 +196,7 @@ fn main() -> anyhow::Result<()> {
         ("add-mem", Program::AddMem),
         ("matmul64", Program::MatMul64),
         ("matmul128", Program::MatMul128),
+        ("jpeg", Program::Jpeg),
     ];
 
     match args.command {

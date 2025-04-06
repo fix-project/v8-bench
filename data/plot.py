@@ -8,7 +8,7 @@ def plot_benchmark(benchmark):
     print(benchmark)
     for approach in sorted(os.listdir(benchmark)):
         approach = approach[:-4]
-        if benchmark == 'jpeg' and approach not in ['arca', 'v8', 'wasm2c-mmap']:
+        if benchmark == 'jpeg' and approach not in ['arca', 'v8', 'wasm2c-mmap', 'wasmtime']:
             continue
         print(f"{benchmark}/{approach}")
         with open(f"{benchmark}/{approach}.csv", 'r') as f:

@@ -11,6 +11,7 @@ use serde::Serialize;
 pub mod arca;
 pub mod v8;
 pub mod wasm2c;
+pub mod wasmtime;
 
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct Datum {
