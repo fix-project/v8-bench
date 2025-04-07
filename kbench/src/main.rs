@@ -13,6 +13,22 @@ extern crate alloc;
 use alloc::{sync::Arc, vec, vec::Vec};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
+use kernel::spinlock::SpinLockGuard;
+
+static PT_LOCK: SpinLock<()> = SpinLock::new(());
+
+pub async fn write_pt(lock: &SpinLock<()>) -> Option<SpinLockGuard<()>> {
+    if kernel::is_serialized() {
+        loop {
+            if let Some(lock) = lock.try_lock() {
+                return Some(lock);
+            }
+            maybe_yield().await;
+        }
+    } else {
+        None
+    }
+}
 
 #[kmain]
 async fn kmain(argv: &[usize]) {
@@ -31,6 +47,7 @@ async fn kmain(argv: &[usize]) {
     };
     kernel::set_tlb_shootdowns_enabled(tlb_shootdowns == 1);
     kernel::set_serialization(serialization == 1);
+    // kernel::prelude::PHYSICAL_ALLOCATOR.set_caching(serialization == 0);
     let parallel = output_length;
     let ptr: *mut u8 = PHYSICAL_ALLOCATOR.from_offset(offset);
     let output: Arc<[AtomicUsize]> = unsafe {
@@ -94,7 +111,9 @@ async fn run(
     lambda: Lambda,
 ) -> usize {
     let once = async || {
+        let lock = write_pt(&PT_LOCK).await;
         let lambda = core::hint::black_box(lambda.clone());
+        core::mem::drop(lock);
         let thunk = lambda.apply(Value::Tree(vec![Value::Word(1), Value::Word(2)].into()));
         let result = thunk.run_for(Duration::from_secs(1));
         let Value::Word(_) = result else {

@@ -59,6 +59,10 @@ enum Commands {
         /// Output directory
         directory: PathBuf,
     },
+    Ablations {
+        /// Output directory
+        directory: PathBuf,
+    },
 }
 
 #[derive(clap::ValueEnum, Clone, Debug, Copy)]
@@ -199,6 +203,17 @@ fn main() -> anyhow::Result<()> {
         ("jpeg", Program::Jpeg),
     ];
 
+    let ablations = &[
+        ("arca-lock", BenchmarkMode::ArcaLock),
+        ("arca-serial", BenchmarkMode::ArcaSerial),
+        ("arca-shootdown", BenchmarkMode::ArcaShootdown),
+    ];
+
+    let ablation_programs = &[
+        ("add-mem", Program::AddMem),
+        ("matmul128", Program::MatMul128),
+    ];
+
     match args.command {
         Commands::Run {
             benchmark,
@@ -254,6 +269,31 @@ fn main() -> anyhow::Result<()> {
                 let time_after = benchmarks_per_program * programs_left * time * iterations;
                 log::info!("running program \"{prog}\"");
                 for (j, (bench, benchmark)) in benchmarks.iter().enumerate() {
+                    let benchmarks_left = benchmarks_per_program - j as u32;
+                    let time_left = time * (benchmarks_left * iterations) + time_after;
+                    log::info!(
+                        "running benchmark \"{bench}\" on program \"{prog}\"; {time_left:?} remaining"
+                    );
+                    let mut file = output.clone();
+                    file.push(bench);
+                    file.set_extension("csv");
+                    run_benchmark(parallel, warmup, duration, *benchmark, *program, Some(file))?;
+                }
+            }
+        }
+        Commands::Ablations { directory } => {
+            std::fs::create_dir_all(&directory)?;
+            let iterations = parallel.ilog2();
+            let time = duration + warmup;
+            let benchmarks_per_program = ablations.len() as u32;
+            for (i, (prog, program)) in ablation_programs.iter().enumerate() {
+                let mut output = directory.clone();
+                output.push(prog);
+                std::fs::create_dir_all(&output)?;
+                let programs_left = (ablation_programs.len() - i) as u32;
+                let time_after = benchmarks_per_program * programs_left * time * iterations;
+                log::info!("running program \"{prog}\"");
+                for (j, (bench, benchmark)) in ablations.iter().enumerate() {
                     let benchmarks_left = benchmarks_per_program - j as u32;
                     let time_left = time * (benchmarks_left * iterations) + time_after;
                     log::info!(
