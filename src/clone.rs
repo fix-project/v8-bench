@@ -1,22 +1,21 @@
-use crate::SingleThreadedRuntime;
+use crate::SimpleRuntime;
 use anyhow::Result;
-use clone3::Clone3;
-use libc::{__WALL, __WNOTHREAD, P_PID, WEXITED};
+use clone3::{Clone3, clone3_system_call};
+use libc::{__WALL, __WNOTHREAD, P_ALL, WEXITED, siginfo_t, waitid};
 use libc::{
-    CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID, CLONE_NEWUSER,
-    CLONE_NEWUTS,
+    CLONE_CHILD_CLEARTID, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID,
+    CLONE_NEWUSER, CLONE_NEWUTS, CLONE_PARENT_SETTID, CLONE_VM, EAGAIN, FUTEX_BITSET_MATCH_ANY,
+    FUTEX_WAIT, SA_NOCLDWAIT, SIGCHLD, SYS_futex, sigaction, syscall,
 };
-use libc::{chdir, chroot, clearenv, clone, exit, siginfo_t, waitid};
+use libc::{chdir, chroot, clearenv, clone, exit};
 use std::{
     ffi::{c_char, c_int, c_void},
-    fs::{File, create_dir, exists, remove_dir},
+    fs::{File, create_dir, exists},
     io::Error,
     path::Path,
-    sync::atomic::{AtomicUsize, Ordering},
-    time::{Duration, Instant},
+    ptr,
 };
 
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
 static CGROUP_DIR: &str = "/sys/fs/cgroup/";
 static ROOT_DIR: &str = concat!(env!("HOME"), "/cgroup-bench/root\0");
 static ROOT: &str = concat!("/", "\0");
@@ -193,48 +192,63 @@ pub struct CloneBenchmark {
 }
 
 impl CloneBenchmark {
-    fn full_flags(config: &mut Clone3) {
-        config.flag_newcgroup();
-        config.flag_newipc();
-        config.flag_newnet();
-        config.flag_newns();
-        config.flag_newpid();
-        config.flag_newuts();
-        config.flag_newuser();
-    }
-
-    unsafe fn clone_helper(
-        &self,
-        config: &mut Clone3,
-        stack: &mut [u8],
-        arg_ptr: *mut Arg,
-    ) -> Result<c_int, Error> {
+    fn clone_helper(&self, state: &mut CloneBenchmarkState) -> Result<c_int, Error> {
         if self.clone3 {
-            match unsafe { config.call() } {
+            let mut config = Clone3::default();
+
+            if self.set_flags {
+                config.flag_newcgroup();
+                config.flag_newipc();
+                config.flag_newnet();
+                config.flag_newns();
+                config.flag_newpid();
+                config.flag_newuts();
+                config.flag_newuser();
+            }
+
+            if let Some(cgroup) = state.cgroup.as_ref() {
+                config.flag_into_cgroup(cgroup);
+            }
+
+            //let child_pid_ptr: *mut i32 = &mut state.child_pid;
+            //config.flag_parent_settid( unsafe{ &mut *child_pid_ptr} );
+            //config.flag_child_cleartid( unsafe{ &mut *child_pid_ptr} );
+            //config.flag_vm(&mut state.stack);
+            let args = config.as_clone_args();
+
+            match SyscallReturnCode(unsafe { clone3_system_call(&args) }.try_into().unwrap())
+                .into_result_value()
+            {
                 Ok(0) => {
-                    unsafe { exit((self.cb)(arg_ptr as *mut c_void)) };
+                    unsafe { exit((self.cb)(Box::as_mut_ptr(&mut state.arg) as *mut c_void)) };
                 }
                 Ok(child) => Ok(child),
-                Err(errno) => Err(Error::from_raw_os_error(errno.0)),
+                Err(errno) => Err(errno),
             }
         } else {
-            let flags: c_int = if self.set_flags {
-                CLONE_NEWCGROUP
+            let mut flags: c_int = CLONE_VM | CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID;
+
+            if self.set_flags {
+                flags = flags
+                    | CLONE_NEWCGROUP
                     | CLONE_NEWIPC
                     | CLONE_NEWNET
                     | CLONE_NEWNS
                     | CLONE_NEWPID
                     | CLONE_NEWUTS
-                    | CLONE_NEWUSER
-            } else {
-                0
-            };
+                    | CLONE_NEWUSER;
+            }
+
+            flags = flags | SIGCHLD;
             SyscallReturnCode(unsafe {
                 clone(
                     self.cb,
-                    stack.as_mut_ptr_range().end as *mut c_void,
+                    state.stack.as_mut_ptr_range().end as *mut c_void,
                     flags,
-                    arg_ptr as *mut c_void,
+                    Box::as_mut_ptr(&mut state.arg) as *mut c_void,
+                    (&mut state.child_pid) as *mut i32,
+                    ptr::null::<c_void>(),
+                    (&mut state.child_pid) as *mut i32,
                 )
             })
             .into_result_value()
@@ -286,18 +300,35 @@ impl CloneBenchmark {
     }
 }
 
-impl SingleThreadedRuntime for CloneBenchmark {
-    fn run(
-        &self,
-        warmup: Duration,
-        duration: Duration,
-        notready: &AtomicUsize,
-        notdone: &AtomicUsize,
-    ) -> usize {
-        let idx = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let path = Path::new(CGROUP_DIR).join(format!("cg{}", idx));
+pub struct CloneBenchmarkState {
+    cgroup: Option<File>,
+    stack: [u8; 10240],
+    arg: Box<Arg>,
+    child_pid: i32,
+}
+
+impl SimpleRuntime for CloneBenchmark {
+    type State = CloneBenchmarkState;
+
+    fn setup(&self) -> CloneBenchmarkState {
+        // Terminated child does not become zombie
+        let mut act: sigaction = unsafe { std::mem::zeroed() };
+        act.sa_flags = SA_NOCLDWAIT;
+        if let Err(error) = SyscallReturnCode(unsafe {
+            sigaction(
+                SIGCHLD,
+                &act as *const sigaction,
+                ptr::null_mut::<sigaction>(),
+            )
+        })
+        .into_result()
+        {
+            panic!("Failed to set SA_NOCLDWAIT: {}", error)
+        }
 
         let cgroup: Option<File> = if self.clone_into_cgroup {
+            let path = Path::new(CGROUP_DIR).join("cg1");
+
             match create_dir(&path) {
                 Ok(_) => (),
                 Err(error) => {
@@ -311,67 +342,42 @@ impl SingleThreadedRuntime for CloneBenchmark {
             None
         };
 
-        let mut clone3_config = Clone3::default();
-        if self.set_flags {
-            CloneBenchmark::full_flags(&mut clone3_config);
+        CloneBenchmarkState {
+            cgroup,
+            stack: [0; 10240],
+            arg: Box::new(Arg(7, 8)),
+            child_pid: 0,
         }
-        if self.clone_into_cgroup {
-            clone3_config.flag_into_cgroup(cgroup.as_ref().unwrap());
+    }
+
+    fn iterate(&self, state: &mut Self::State) {
+        let res = self.clone_helper(state).expect("Failed to clone.");
+        let res = if self.clone3 {
+            SyscallReturnCode(unsafe {
+                let mut info: siginfo_t = std::mem::zeroed();
+                waitid(P_ALL, 0, &mut info, __WALL | __WNOTHREAD | WEXITED)
+            })
+        } else {
+            SyscallReturnCode(unsafe {
+                syscall(
+                    SYS_futex,
+                    (&mut state.child_pid) as *mut i32,
+                    FUTEX_WAIT,
+                    res,
+                    0,
+                    FUTEX_BITSET_MATCH_ANY,
+                )
+                .try_into()
+                .unwrap()
+            })
         }
-
-        let mut arg = Box::new(Arg(7, 8));
-        let arg_ptr: *mut Arg = Box::as_mut_ptr(&mut arg);
-        let mut stack: [u8; 1024] = [0; 1024];
-
-        let mut once = || {
-            let res = unsafe { self.clone_helper(&mut clone3_config, &mut stack, arg_ptr) };
-            let res = match res {
-                Ok(child) => SyscallReturnCode(unsafe {
-                    let mut info: siginfo_t = std::mem::zeroed();
-                    waitid(
-                        P_PID,
-                        child.try_into().unwrap(),
-                        &mut info,
-                        __WALL | __WNOTHREAD | WEXITED,
-                    )
-                })
-                .into_result(),
-                Err(error) => {
-                    panic!("clone error: {}", error)
-                }
-            };
-
-            if let Err(error) = res {
-                panic!("waitid error: {}", error)
-            }
-        };
-
-        let warmup_start = Instant::now();
-        while warmup_start.elapsed() < warmup {
-            once();
-        }
-        notready.fetch_sub(1, Ordering::Release);
-        while notready.load(Ordering::Acquire) != 0 {
-            once();
-        }
-        let start = Instant::now();
-        let mut iters = 0;
-        loop {
-            once();
-            if start.elapsed() < duration {
-                iters += 1;
+        .into_result();
+        if let Err(error) = res {
+            if let Some(EAGAIN) = error.raw_os_error() {
+                return;
             } else {
-                break;
+                panic!("futex_wait error: {}", error)
             }
         }
-        notdone.fetch_sub(1, Ordering::Release);
-        while notready.load(Ordering::Acquire) != 0 {
-            once();
-        }
-
-        if self.clone_into_cgroup {
-            let _ = remove_dir(&path);
-        }
-        iters
     }
 }
