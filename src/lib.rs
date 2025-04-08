@@ -1,6 +1,7 @@
 #![feature(allocator_api)]
 #![feature(slice_ptr_get)]
 #![feature(box_as_ptr)]
+#![feature(naked_functions)]
 
 use std::{
     sync::atomic::{AtomicUsize, Ordering},

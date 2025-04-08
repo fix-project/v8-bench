@@ -1,14 +1,14 @@
 use crate::SimpleRuntime;
 use anyhow::Result;
-use clone3::{Clone3, clone3_system_call};
-use libc::{__WALL, __WNOTHREAD, P_ALL, WEXITED, siginfo_t, waitid};
+use clone3::{Clone3, CloneArgs};
 use libc::{
     CLONE_CHILD_CLEARTID, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID,
     CLONE_NEWUSER, CLONE_NEWUTS, CLONE_PARENT_SETTID, CLONE_VM, EAGAIN, FUTEX_BITSET_MATCH_ANY,
-    FUTEX_WAIT, SA_NOCLDWAIT, SIGCHLD, SYS_futex, sigaction, syscall,
+    FUTEX_WAIT, SA_NOCLDWAIT, SIGCHLD, SYS_exit, SYS_futex, sigaction, syscall,
 };
-use libc::{chdir, chroot, clearenv, clone, exit};
+use libc::{chdir, chroot, clearenv, clone};
 use std::{
+    arch::naked_asm,
     ffi::{c_char, c_int, c_void},
     fs::{File, create_dir, exists},
     io::Error,
@@ -133,7 +133,7 @@ extern "C" fn addvec(arg: *mut c_void) -> c_int {
     let x = arg.0;
     let y = arg.1;
 
-    let mem: &mut [u32; 65536 >> 2] = unsafe { std::mem::transmute(&raw mut MEMORY) };
+    let mem: &mut [u32; 65536 >> 2] = unsafe { &mut *(&raw mut MEMORY as *mut [u32; 16384]) };
 
     for i in 0..4096 {
         mem[i] = x as u32;
@@ -145,7 +145,7 @@ extern "C" fn addvec(arg: *mut c_void) -> c_int {
         mem[8192 + i] = mem[i] + mem[4096 + i];
     }
 
-    let z = mem[8192] as u32;
+    let z = mem[8192];
     z.try_into().unwrap()
 }
 
@@ -191,8 +191,45 @@ pub struct CloneBenchmark {
     cb: extern "C" fn(*mut c_void) -> c_int,
 }
 
+#[repr(C)]
+#[repr(align(16))]
+struct StackHead {
+    thread_entry: usize,
+    cb: extern "C" fn(*mut c_void) -> c_int,
+    arg: *mut c_void,
+}
+
+extern "C" fn clone3_threadenv(stackhead: *const StackHead) {
+    let stack: &StackHead = unsafe { &(*stackhead) };
+    let res = (stack.cb)(stack.arg);
+    unsafe {
+        syscall(SYS_exit, res as u64);
+    }
+}
+
+#[naked]
+unsafe fn clone3_newthread(stack: *const CloneArgs) -> i64 {
+    unsafe {
+        naked_asm!(
+            "mov  rsi, 88",  // arg2 = sizeof(CloneArgs)
+            "mov  rdi, rdi", // arg1 = CloneArgs*
+            "mov  eax, 435", // SYS_clone3
+            "syscall",
+            "mov  rdi, rsp", // entry point argument
+            "ret",
+        );
+    }
+}
+
+pub struct CloneBenchmarkState {
+    cgroup: Option<File>,
+    stack: [u8; 10240],
+    arg: Box<Arg>,
+    child_pid: i32,
+}
+
 impl CloneBenchmark {
-    fn clone_helper(&self, state: &mut CloneBenchmarkState) -> Result<c_int, Error> {
+    fn clone_helper(&self, state: &mut CloneBenchmarkState) -> c_int {
         if self.clone3 {
             let mut config = Clone3::default();
 
@@ -210,21 +247,32 @@ impl CloneBenchmark {
                 config.flag_into_cgroup(cgroup);
             }
 
-            //let child_pid_ptr: *mut i32 = &mut state.child_pid;
-            //config.flag_parent_settid( unsafe{ &mut *child_pid_ptr} );
-            //config.flag_child_cleartid( unsafe{ &mut *child_pid_ptr} );
-            //config.flag_vm(&mut state.stack);
-            let args = config.as_clone_args();
+            // Set up futex
+            let child_pid_ptr: *mut i32 = &mut state.child_pid;
+            config.flag_parent_settid(unsafe { &mut *child_pid_ptr });
+            config.flag_child_cleartid(unsafe { &mut *child_pid_ptr });
 
-            match SyscallReturnCode(unsafe { clone3_system_call(&args) }.try_into().unwrap())
-                .into_result_value()
-            {
-                Ok(0) => {
-                    unsafe { exit((self.cb)(Box::as_mut_ptr(&mut state.arg) as *mut c_void)) };
-                }
-                Ok(child) => Ok(child),
-                Err(errno) => Err(errno),
-            }
+            // Set exit signal
+            config.exit_signal(SIGCHLD.try_into().unwrap());
+
+            let stack_head = StackHead {
+                thread_entry: clone3_threadenv as usize,
+                cb: self.cb,
+                arg: Box::as_mut_ptr(&mut state.arg) as *mut c_void,
+            };
+
+            let stack_head_ptr =
+                unsafe { &mut *(state.stack.as_mut_ptr_range().end as *mut StackHead).offset(-1) };
+            // Load stack_head to the beginning of allocated stack
+            *stack_head_ptr = stack_head;
+
+            config.flag_vm(&mut state.stack);
+            let mut args = config.as_clone_args();
+
+            // Exclude stack_head from the stack
+            args.stack_size -= core::mem::size_of::<StackHead>() as u64;
+
+            unsafe { clone3_newthread(&args).try_into().unwrap() }
         } else {
             let mut flags: c_int = CLONE_VM | CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID;
 
@@ -239,8 +287,8 @@ impl CloneBenchmark {
                     | CLONE_NEWUSER;
             }
 
-            flags = flags | SIGCHLD;
-            SyscallReturnCode(unsafe {
+            flags |= SIGCHLD;
+            unsafe {
                 clone(
                     self.cb,
                     state.stack.as_mut_ptr_range().end as *mut c_void,
@@ -250,8 +298,7 @@ impl CloneBenchmark {
                     ptr::null::<c_void>(),
                     (&mut state.child_pid) as *mut i32,
                 )
-            })
-            .into_result_value()
+            }
         }
     }
 
@@ -270,6 +317,7 @@ impl CloneBenchmark {
                 CloneBenchmarkType::Add => {
                     if chenv {
                         add_containered
+                        //add
                     } else {
                         add
                     }
@@ -298,13 +346,6 @@ impl CloneBenchmark {
             },
         })
     }
-}
-
-pub struct CloneBenchmarkState {
-    cgroup: Option<File>,
-    stack: [u8; 10240],
-    arg: Box<Arg>,
-    child_pid: i32,
 }
 
 impl SimpleRuntime for CloneBenchmark {
@@ -345,36 +386,30 @@ impl SimpleRuntime for CloneBenchmark {
         CloneBenchmarkState {
             cgroup,
             stack: [0; 10240],
-            arg: Box::new(Arg(7, 8)),
+            arg: Box::new(Arg(42, 8)),
             child_pid: 0,
         }
     }
 
     fn iterate(&self, state: &mut Self::State) {
-        let res = self.clone_helper(state).expect("Failed to clone.");
-        let res = if self.clone3 {
-            SyscallReturnCode(unsafe {
-                let mut info: siginfo_t = std::mem::zeroed();
-                waitid(P_ALL, 0, &mut info, __WALL | __WNOTHREAD | WEXITED)
-            })
-        } else {
-            SyscallReturnCode(unsafe {
-                syscall(
-                    SYS_futex,
-                    (&mut state.child_pid) as *mut i32,
-                    FUTEX_WAIT,
-                    res,
-                    0,
-                    FUTEX_BITSET_MATCH_ANY,
-                )
-                .try_into()
-                .unwrap()
-            })
-        }
+        let res = SyscallReturnCode(self.clone_helper(state))
+            .into_result_value()
+            .expect("Failed to clone.");
+        let res = SyscallReturnCode(unsafe {
+            syscall(
+                SYS_futex,
+                (&mut state.child_pid) as *mut i32,
+                FUTEX_WAIT,
+                res,
+                0,
+                FUTEX_BITSET_MATCH_ANY,
+            )
+            .try_into()
+            .unwrap()
+        })
         .into_result();
         if let Err(error) = res {
             if let Some(EAGAIN) = error.raw_os_error() {
-                return;
             } else {
                 panic!("futex_wait error: {}", error)
             }
