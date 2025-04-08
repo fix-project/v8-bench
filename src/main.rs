@@ -108,14 +108,12 @@ enum BenchmarkMode {
     Wasmtime,
     /// clone
     CloneBareMetal,
-    /// clone + new namespaces
+    /// clone3 + new namespaces
     CloneNewNamespace,
-    /// clone + new namespaces + change root
+    /// clone3 + new namespaces + change root
     CloneChRoot,
-    /// clone3 + new namepaces + change root
-    Clone3ChRoot,
     /// clone3 + new namespaces + change root + clone into cgroup
-    Clone3,
+    Clone,
 }
 
 fn wat_benchmark(which: Program) -> &'static [u8] {
@@ -137,6 +135,16 @@ fn arca_benchmark(which: Program) -> &'static [u8] {
         Program::MatMul64 => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_matmul64")),
         Program::MatMul128 => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_matmul128")),
         Program::Jpeg => include_bytes!(env!("CARGO_BIN_FILE_UBENCH_jpeg")),
+    }
+}
+
+fn clone_benchmark(which: BenchmarkType) -> CloneBenchmarkType {
+    match which {
+        BenchmarkType::Add => CloneBenchmarkType::Add,
+        BenchmarkType::AddMem => CloneBenchmarkType::Add,
+        BenchmarkType::AddVec => CloneBenchmarkType::Add,
+        BenchmarkType::MatMul64 => CloneBenchmarkType::MatMul64,
+        BenchmarkType::MatMul128 => CloneBenchmarkType::MatMul128,
     }
 }
 
@@ -170,6 +178,18 @@ fn run_benchmark(
             BenchmarkMode::ArcaLock => &ArcaBenchmark::new(arca_benchmark(program), false, true),
             BenchmarkMode::ArcaSerial => &ArcaBenchmark::new(arca_benchmark(program), true, true),
             BenchmarkMode::Wasmtime => &WasmtimeBenchmark::new(wat_benchmark(program))?,
+            BenchmarkMode::CloneBareMetal => {
+                &CloneBenchmark::new(clone_benchmark(program), false, false, true, false)?
+            }
+            BenchmarkMode::CloneNewNamespace => {
+                &CloneBenchmark::new(clone_benchmark(program), true, false, true, false)?
+            }
+            BenchmarkMode::CloneChRoot => {
+                &CloneBenchmark::new(clone_benchmark(program), true, true, true, false)?
+            }
+            BenchmarkMode::Clone => {
+                &CloneBenchmark::new(clone_benchmark(program), true, true, true, true)?
+            }
         }
     };
 

@@ -10,7 +10,7 @@ use libc::{chdir, chroot, clearenv, clone};
 use std::{
     arch::naked_asm,
     ffi::{c_char, c_int, c_void},
-    fs::{File, create_dir, exists},
+    fs::{File, create_dir, create_dir_all, exists},
     io::Error,
     path::Path,
     ptr,
@@ -365,6 +365,16 @@ impl SimpleRuntime for CloneBenchmark {
         .into_result()
         {
             panic!("Failed to set SA_NOCLDWAIT: {}", error)
+        }
+
+        let root_path = Path::new(ROOT_DIR.trim_matches('\0'));
+        match create_dir_all(root_path) {
+            Ok(_) => (),
+            Err(error) => {
+                if !exists(root_path).unwrap() {
+                    panic!("{}", error)
+                }
+            }
         }
 
         let cgroup: Option<File> = if self.clone_into_cgroup {
