@@ -279,6 +279,7 @@ dependencies = [
  "vmm",
  "wabt",
  "wasmtime",
+ "zune-jpeg",
 ]
 
 [[package]]

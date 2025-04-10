@@ -138,13 +138,14 @@ fn arca_benchmark(which: Program) -> &'static [u8] {
     }
 }
 
-fn clone_benchmark(which: BenchmarkType) -> CloneBenchmarkType {
+fn clone_benchmark(which: Program) -> CloneBenchmarkType {
     match which {
-        BenchmarkType::Add => CloneBenchmarkType::Add,
-        BenchmarkType::AddMem => CloneBenchmarkType::Add,
-        BenchmarkType::AddVec => CloneBenchmarkType::Add,
-        BenchmarkType::MatMul64 => CloneBenchmarkType::MatMul64,
-        BenchmarkType::MatMul128 => CloneBenchmarkType::MatMul128,
+        Program::Add => CloneBenchmarkType::Add,
+        Program::AddMem => CloneBenchmarkType::Add,
+        Program::AddVec => CloneBenchmarkType::Add,
+        Program::MatMul64 => CloneBenchmarkType::MatMul64,
+        Program::MatMul128 => CloneBenchmarkType::MatMul128,
+        Program::Jpeg => CloneBenchmarkType::Jpeg,
     }
 }
 

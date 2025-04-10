@@ -6,6 +6,9 @@ use libc::{
     CLONE_NEWUSER, CLONE_NEWUTS, CLONE_PARENT_SETTID, CLONE_VM, EAGAIN, FUTEX_BITSET_MATCH_ANY,
     FUTEX_WAIT, SA_NOCLDWAIT, SIGCHLD, SYS_exit, SYS_futex, sigaction, syscall,
 };
+use libc::{
+    MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, MAP_STACK, PROT_READ, PROT_WRITE, mmap, munmap,
+};
 use libc::{chdir, chroot, clearenv, clone};
 use std::{
     arch::naked_asm,
@@ -13,9 +16,11 @@ use std::{
     fs::{File, create_dir, create_dir_all, exists},
     io::Error,
     path::Path,
-    ptr,
+    ptr, slice,
 };
 
+use zune_jpeg::{JpegDecoder, zune_core::colorspace::ColorSpace};
+static IMAGE: &[u8] = include_bytes!("../AS11-36-5339_lrg.jpg");
 static CGROUP_DIR: &str = "/sys/fs/cgroup/";
 static ROOT_DIR: &str = concat!(env!("HOME"), "/cgroup-bench/root\0");
 static ROOT: &str = concat!("/", "\0");
@@ -48,6 +53,7 @@ pub enum CloneBenchmarkType {
     AddVec,
     MatMul64,
     MatMul128,
+    Jpeg,
 }
 
 static mut DIM: usize = 64;
@@ -149,6 +155,29 @@ extern "C" fn addvec(arg: *mut c_void) -> c_int {
     z.try_into().unwrap()
 }
 
+extern "C" fn jpeg(_: *mut c_void) -> c_int {
+    let mut jpeg = JpegDecoder::new(IMAGE);
+    let pixels = jpeg.decode().unwrap();
+    let (w, h) = jpeg.dimensions().unwrap();
+    assert_eq!(jpeg.get_output_colorspace().unwrap(), ColorSpace::RGB);
+    let bpp = pixels.len() / (w * h);
+    let width = 32;
+    let height = 32;
+    let x_scale = w / width;
+    let y_scale = h / height;
+    let mut output: Vec<u8> = vec![0; width * height * bpp];
+    for y in 0..height {
+        for x in 0..width {
+            let out_range = &mut output[(y * width + x) * bpp..];
+            let in_range = &pixels[(y * y_scale * w + x * x_scale) * bpp..];
+            let out_pixel = &mut out_range[..bpp];
+            let in_pixel = &in_range[..bpp];
+            out_pixel.copy_from_slice(in_pixel);
+        }
+    }
+    0
+}
+
 fn chenv() -> std::io::Result<()> {
     SyscallReturnCode(unsafe { clearenv() }).into_result()?;
     SyscallReturnCode(unsafe { chroot(ROOT_DIR.as_ptr() as *const c_char) }).into_result()?;
@@ -180,6 +209,13 @@ extern "C" fn matmul64_containered(arg: *mut c_void) -> c_int {
 extern "C" fn matmul128_containered(arg: *mut c_void) -> c_int {
     match chenv() {
         Ok(_) => matmul128(arg),
+        Err(e) => e.raw_os_error().unwrap(),
+    }
+}
+
+extern "C" fn jpeg_containered(arg: *mut c_void) -> c_int {
+    match chenv() {
+        Ok(_) => jpeg(arg),
         Err(e) => e.raw_os_error().unwrap(),
     }
 }
@@ -221,9 +257,46 @@ unsafe fn clone3_newthread(stack: *const CloneArgs) -> i64 {
     }
 }
 
+struct MMapStack {
+    addr: *mut c_void,
+    size: usize,
+}
+
+impl MMapStack {
+    fn new(size: usize) -> Self {
+        let addr = unsafe {
+            mmap(
+                ptr::null_mut::<c_void>(),
+                size,
+                PROT_READ | PROT_WRITE,
+                MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK,
+                -1,
+                0,
+            )
+        };
+        if addr == MAP_FAILED {
+            panic!("Failed to mmap");
+        }
+
+        MMapStack { addr, size }
+    }
+
+    fn as_slice(&self) -> &mut [u8] {
+        unsafe { slice::from_raw_parts_mut(self.addr as *mut u8, self.size) }
+    }
+}
+
+impl Drop for MMapStack {
+    fn drop(&mut self) {
+        unsafe {
+            munmap(self.addr, self.size);
+        }
+    }
+}
+
 pub struct CloneBenchmarkState {
     cgroup: Option<File>,
-    stack: [u8; 10240],
+    stack: MMapStack,
     arg: Box<Arg>,
     child_pid: i32,
 }
@@ -261,12 +334,13 @@ impl CloneBenchmark {
                 arg: Box::as_mut_ptr(&mut state.arg) as *mut c_void,
             };
 
-            let stack_head_ptr =
-                unsafe { &mut *(state.stack.as_mut_ptr_range().end as *mut StackHead).offset(-1) };
+            let stack_head_ptr = unsafe {
+                &mut *(state.stack.as_slice().as_mut_ptr_range().end as *mut StackHead).offset(-1)
+            };
             // Load stack_head to the beginning of allocated stack
             *stack_head_ptr = stack_head;
 
-            config.flag_vm(&mut state.stack);
+            config.flag_vm(state.stack.as_slice());
             let mut args = config.as_clone_args();
 
             // Exclude stack_head from the stack
@@ -291,7 +365,7 @@ impl CloneBenchmark {
             unsafe {
                 clone(
                     self.cb,
-                    state.stack.as_mut_ptr_range().end as *mut c_void,
+                    state.stack.as_slice().as_mut_ptr_range().end as *mut c_void,
                     flags,
                     Box::as_mut_ptr(&mut state.arg) as *mut c_void,
                     (&mut state.child_pid) as *mut i32,
@@ -317,7 +391,6 @@ impl CloneBenchmark {
                 CloneBenchmarkType::Add => {
                     if chenv {
                         add_containered
-                        //add
                     } else {
                         add
                     }
@@ -341,6 +414,13 @@ impl CloneBenchmark {
                         matmul128_containered
                     } else {
                         matmul128
+                    }
+                }
+                CloneBenchmarkType::Jpeg => {
+                    if chenv {
+                        jpeg_containered
+                    } else {
+                        jpeg
                     }
                 }
             },
@@ -395,7 +475,7 @@ impl SimpleRuntime for CloneBenchmark {
 
         CloneBenchmarkState {
             cgroup,
-            stack: [0; 10240],
+            stack: MMapStack::new(1 << 20),
             arg: Box::new(Arg(42, 8)),
             child_pid: 0,
         }
@@ -418,6 +498,7 @@ impl SimpleRuntime for CloneBenchmark {
             .unwrap()
         })
         .into_result();
+
         if let Err(error) = res {
             if let Some(EAGAIN) = error.raw_os_error() {
             } else {
