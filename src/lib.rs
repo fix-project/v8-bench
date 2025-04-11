@@ -27,8 +27,18 @@ pub struct Datum {
 pub trait Benchmark {
     fn bench(&self, parallel: usize, warmup: Duration, duration: Duration) -> Vec<usize>;
 
-    fn experiment(&self, parallel: usize, warmup: Duration, duration: Duration) -> Vec<Datum> {
-        let results = self.bench(parallel, warmup, duration);
+    fn experiment(
+        &self,
+        parallel: usize,
+        warmup: Duration,
+        duration: Duration,
+        run_as_process: bool,
+    ) -> Vec<Datum> {
+        let results = if run_as_process {
+            self.bench(1, warmup, duration)
+        } else {
+            self.bench(parallel, warmup, duration)
+        };
         let duration_ns = duration.as_nanos();
 
         let sum: usize = results.iter().sum::<usize>();
@@ -56,12 +66,17 @@ pub trait Benchmark {
         max_parallel: usize,
         warmup: Duration,
         duration: Duration,
+        run_as_process: bool,
     ) -> Vec<Datum> {
         let mut data = vec![];
-        let lg_max_parallel = max_parallel.ilog2();
-        for lg_parallel in 0..lg_max_parallel + 1 {
-            let parallel = 1 << lg_parallel;
-            data.extend(self.experiment(parallel, warmup, duration));
+        if run_as_process {
+            data.extend(self.experiment(max_parallel, warmup, duration, run_as_process))
+        } else {
+            let lg_max_parallel = max_parallel.ilog2();
+            for lg_parallel in 0..lg_max_parallel + 1 {
+                let parallel = 1 << lg_parallel;
+                data.extend(self.experiment(parallel, warmup, duration, run_as_process));
+            }
         }
         data
     }

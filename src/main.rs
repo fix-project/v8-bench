@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::{fs::OpenOptions, path::PathBuf, time::Duration};
 
 use benchmark::{
     self,
@@ -12,7 +12,7 @@ use benchmark::{
 use benchmark::Benchmark;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 
 #[derive(Parser, Debug)]
 #[clap(name = "Arca Benchmark")]
@@ -27,6 +27,9 @@ struct Args {
     /// How long to warm up
     #[arg(short, long, default_value = "100ms")]
     warmup: humantime::Duration,
+    /// Run as parallel process invocations
+    #[arg(short, long, action=ArgAction::SetTrue)]
+    run_as_process: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -157,6 +160,7 @@ fn run_benchmark(
     duration: Duration,
     benchmark: BenchmarkMode,
     program: Program,
+    run_as_process: bool,
     output: Option<PathBuf>,
 ) -> Result<()> {
     let benchmark: &dyn Benchmark = unsafe {
@@ -199,9 +203,26 @@ fn run_benchmark(
         }
     };
 
-    let mut writer = output.map(csv::Writer::from_path).transpose()?;
+    let mut writer = if run_as_process {
+        output
+            .and_then(|path| {
+                OpenOptions::new()
+                    .write(true)
+                    .read(true)
+                    .append(true)
+                    .open(path)
+                    .ok()
+            })
+            .map(|file| {
+                csv::WriterBuilder::new()
+                    .has_headers(false)
+                    .from_writer(file)
+            })
+    } else {
+        output.map(csv::Writer::from_path).transpose()?
+    };
 
-    for datum in benchmark.collect_data(parallel, warmup, duration) {
+    for datum in benchmark.collect_data(parallel, warmup, duration, run_as_process) {
         if let Some(ref mut writer) = writer {
             writer.serialize(datum)?;
         }
@@ -218,6 +239,7 @@ fn main() -> anyhow::Result<()> {
     let parallel = if parallel == 0 { cpus } else { parallel };
     let warmup: std::time::Duration = args.warmup.into();
     let duration: std::time::Duration = args.duration.into();
+    let run_as_process: bool = args.run_as_process.into();
 
     let benchmarks = &[
         ("v8", BenchmarkMode::V8),
@@ -262,7 +284,15 @@ fn main() -> anyhow::Result<()> {
             program,
             output,
         } => {
-            run_benchmark(parallel, warmup, duration, benchmark, program, output)?;
+            run_benchmark(
+                parallel,
+                warmup,
+                duration,
+                benchmark,
+                program,
+                run_as_process,
+                output,
+            )?;
         }
         Commands::RunProgram { output, program } => {
             std::fs::create_dir_all(&output)?;
@@ -275,7 +305,15 @@ fn main() -> anyhow::Result<()> {
                 let mut file = output.clone();
                 file.push(label);
                 file.set_extension("csv");
-                run_benchmark(parallel, warmup, duration, *benchmark, program, Some(file))?;
+                run_benchmark(
+                    parallel,
+                    warmup,
+                    duration,
+                    *benchmark,
+                    program,
+                    run_as_process,
+                    Some(file),
+                )?;
             }
         }
         Commands::RunBenchmark { output, benchmark } => {
@@ -295,7 +333,15 @@ fn main() -> anyhow::Result<()> {
                 let mut file = output;
                 file.push(name);
                 file.set_extension("csv");
-                run_benchmark(parallel, warmup, duration, benchmark, *program, Some(file))?;
+                run_benchmark(
+                    parallel,
+                    warmup,
+                    duration,
+                    benchmark,
+                    *program,
+                    run_as_process,
+                    Some(file),
+                )?;
             }
         }
         Commands::Everything { directory } => {
@@ -319,7 +365,15 @@ fn main() -> anyhow::Result<()> {
                     let mut file = output.clone();
                     file.push(bench);
                     file.set_extension("csv");
-                    run_benchmark(parallel, warmup, duration, *benchmark, *program, Some(file))?;
+                    run_benchmark(
+                        parallel,
+                        warmup,
+                        duration,
+                        *benchmark,
+                        *program,
+                        run_as_process,
+                        Some(file),
+                    )?;
                 }
             }
         }
@@ -344,7 +398,15 @@ fn main() -> anyhow::Result<()> {
                     let mut file = output.clone();
                     file.push(bench);
                     file.set_extension("csv");
-                    run_benchmark(parallel, warmup, duration, *benchmark, *program, Some(file))?;
+                    run_benchmark(
+                        parallel,
+                        warmup,
+                        duration,
+                        *benchmark,
+                        *program,
+                        run_as_process,
+                        Some(file),
+                    )?;
                 }
             }
         }
