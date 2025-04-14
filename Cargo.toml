@@ -1,5 +1,6 @@
 [workspace]
 members = [ "jpeg-wasm","kbench", "ubench"]
+exclude = [ "firecracker" ]
 
 [package]
 name = "benchmark"

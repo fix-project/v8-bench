@@ -1,0 +1,4 @@
+/target
+hello-vmlinux.bin
+init
+rootfs.ext4
