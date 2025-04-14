@@ -1,6 +1,7 @@
 use crate::SimpleRuntime;
 use anyhow::Result;
 use clone3::{Clone3, CloneArgs};
+use libc::{__WALL, __WNOTHREAD, P_ALL, P_PID, WEXITED, siginfo_t, waitid};
 use libc::{
     CLONE_CHILD_CLEARTID, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID,
     CLONE_NEWUSER, CLONE_NEWUTS, CLONE_PARENT_SETTID, CLONE_VM, EAGAIN, FUTEX_BITSET_MATCH_ANY,
@@ -222,6 +223,7 @@ extern "C" fn jpeg_containered(arg: *mut c_void) -> c_int {
 
 pub struct CloneBenchmark {
     set_flags: bool,
+    create_process: bool,
     clone_into_cgroup: bool,
     clone3: bool,
     cb: extern "C" fn(*mut c_void) -> c_int,
@@ -296,7 +298,7 @@ impl Drop for MMapStack {
 
 pub struct CloneBenchmarkState {
     cgroup: Option<File>,
-    stack: MMapStack,
+    stack: Option<MMapStack>,
     arg: Box<Arg>,
     child_pid: i32,
 }
@@ -320,33 +322,51 @@ impl CloneBenchmark {
                 config.flag_into_cgroup(cgroup);
             }
 
-            // Set up futex
-            let child_pid_ptr: *mut i32 = &mut state.child_pid;
-            config.flag_parent_settid(unsafe { &mut *child_pid_ptr });
-            config.flag_child_cleartid(unsafe { &mut *child_pid_ptr });
+            if !self.create_process {
+                // Set exit signal
+                config.exit_signal(SIGCHLD.try_into().unwrap());
 
-            // Set exit signal
-            config.exit_signal(SIGCHLD.try_into().unwrap());
+                // Set up futex
+                let child_pid_ptr: *mut i32 = &mut state.child_pid;
+                config.flag_parent_settid(unsafe { &mut *child_pid_ptr });
+                config.flag_child_cleartid(unsafe { &mut *child_pid_ptr });
 
-            let stack_head = StackHead {
-                thread_entry: clone3_threadenv as usize,
-                cb: self.cb,
-                arg: Box::as_mut_ptr(&mut state.arg) as *mut c_void,
-            };
+                let stack_head = StackHead {
+                    thread_entry: clone3_threadenv as usize,
+                    cb: self.cb,
+                    arg: Box::as_mut_ptr(&mut state.arg) as *mut c_void,
+                };
 
-            let stack_head_ptr = unsafe {
-                &mut *(state.stack.as_slice().as_mut_ptr_range().end as *mut StackHead).offset(-1)
-            };
-            // Load stack_head to the beginning of allocated stack
-            *stack_head_ptr = stack_head;
+                let stack_head_ptr = unsafe {
+                    &mut *(state
+                        .stack
+                        .as_ref()
+                        .unwrap()
+                        .as_slice()
+                        .as_mut_ptr_range()
+                        .end as *mut StackHead)
+                        .offset(-1)
+                };
+                // Load stack_head to the beginning of allocated stack
+                *stack_head_ptr = stack_head;
 
-            config.flag_vm(state.stack.as_slice());
-            let mut args = config.as_clone_args();
+                config.flag_vm(state.stack.as_ref().unwrap().as_slice());
+            }
 
-            // Exclude stack_head from the stack
-            args.stack_size -= core::mem::size_of::<StackHead>() as u64;
-
-            unsafe { clone3_newthread(&args).try_into().unwrap() }
+            if self.create_process {
+                match unsafe { config.call() } {
+                    Ok(0) => unsafe {
+                        libc::exit((self.cb)(Box::as_mut_ptr(&mut state.arg) as *mut c_void))
+                    },
+                    Ok(res) => res,
+                    Err(errno) => errno.0,
+                }
+            } else {
+                let mut args = config.as_clone_args();
+                // Exclude stack_head from the stack
+                args.stack_size -= core::mem::size_of::<StackHead>() as u64;
+                unsafe { clone3_newthread(&args).try_into().unwrap() }
+            }
         } else {
             let mut flags: c_int = CLONE_VM | CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID;
 
@@ -365,7 +385,13 @@ impl CloneBenchmark {
             unsafe {
                 clone(
                     self.cb,
-                    state.stack.as_slice().as_mut_ptr_range().end as *mut c_void,
+                    state
+                        .stack
+                        .as_ref()
+                        .unwrap()
+                        .as_slice()
+                        .as_mut_ptr_range()
+                        .end as *mut c_void,
                     flags,
                     Box::as_mut_ptr(&mut state.arg) as *mut c_void,
                     (&mut state.child_pid) as *mut i32,
@@ -378,6 +404,7 @@ impl CloneBenchmark {
 
     pub fn new(
         benchmark: CloneBenchmarkType,
+        create_process: bool,
         set_flags: bool,
         chenv: bool,
         clone3: bool,
@@ -385,6 +412,7 @@ impl CloneBenchmark {
     ) -> Result<Self> {
         Ok(CloneBenchmark {
             set_flags,
+            create_process,
             clone3,
             clone_into_cgroup: clone3 && clone_into_cgroup,
             cb: match benchmark {
@@ -432,19 +460,21 @@ impl SimpleRuntime for CloneBenchmark {
     type State = CloneBenchmarkState;
 
     fn setup(&self) -> CloneBenchmarkState {
-        // Terminated child does not become zombie
-        let mut act: sigaction = unsafe { std::mem::zeroed() };
-        act.sa_flags = SA_NOCLDWAIT;
-        if let Err(error) = SyscallReturnCode(unsafe {
-            sigaction(
-                SIGCHLD,
-                &act as *const sigaction,
-                ptr::null_mut::<sigaction>(),
-            )
-        })
-        .into_result()
-        {
-            panic!("Failed to set SA_NOCLDWAIT: {}", error)
+        if !self.create_process {
+            // Terminated child does not become zombie
+            let mut act: sigaction = unsafe { std::mem::zeroed() };
+            act.sa_flags = SA_NOCLDWAIT;
+            if let Err(error) = SyscallReturnCode(unsafe {
+                sigaction(
+                    SIGCHLD,
+                    &act as *const sigaction,
+                    ptr::null_mut::<sigaction>(),
+                )
+            })
+            .into_result()
+            {
+                panic!("Failed to set SA_NOCLDWAIT: {}", error)
+            }
         }
 
         let root_path = Path::new(ROOT_DIR.trim_matches('\0'));
@@ -475,7 +505,11 @@ impl SimpleRuntime for CloneBenchmark {
 
         CloneBenchmarkState {
             cgroup,
-            stack: MMapStack::new(1 << 20),
+            stack: if self.create_process {
+                None
+            } else {
+                Some(MMapStack::new(1 << 20))
+            },
             arg: Box::new(Arg(42, 8)),
             child_pid: 0,
         }
@@ -485,18 +519,30 @@ impl SimpleRuntime for CloneBenchmark {
         let res = SyscallReturnCode(self.clone_helper(state))
             .into_result_value()
             .expect("Failed to clone.");
-        let res = SyscallReturnCode(unsafe {
-            syscall(
-                SYS_futex,
-                (&mut state.child_pid) as *mut i32,
-                FUTEX_WAIT,
-                res,
-                0,
-                FUTEX_BITSET_MATCH_ANY,
-            )
-            .try_into()
-            .unwrap()
-        })
+        let res = if self.create_process {
+            let mut info: siginfo_t = unsafe { std::mem::zeroed() };
+            SyscallReturnCode(unsafe {
+                waitid(
+                    P_PID,
+                    res.try_into().unwrap(),
+                    &mut info,
+                    __WALL | __WNOTHREAD | WEXITED,
+                )
+            })
+        } else {
+            SyscallReturnCode(unsafe {
+                syscall(
+                    SYS_futex,
+                    (&mut state.child_pid) as *mut i32,
+                    FUTEX_WAIT,
+                    res,
+                    0,
+                    FUTEX_BITSET_MATCH_ANY,
+                )
+                .try_into()
+                .unwrap()
+            })
+        }
         .into_result();
 
         if let Err(error) = res {

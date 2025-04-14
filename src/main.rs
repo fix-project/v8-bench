@@ -106,8 +106,10 @@ enum BenchmarkMode {
     ArcaSerial,
     /// Wasmtime
     Wasmtime,
-    /// clone
-    CloneBareMetal,
+    /// clone (create thread)
+    CloneThread,
+    /// clone (create process)
+    CloneProcess,
     /// clone3 + new namespaces
     CloneNewNamespace,
     /// clone3 + new namespaces + change root
@@ -179,17 +181,20 @@ fn run_benchmark(
             BenchmarkMode::ArcaLock => &ArcaBenchmark::new(arca_benchmark(program), false, true),
             BenchmarkMode::ArcaSerial => &ArcaBenchmark::new(arca_benchmark(program), true, true),
             BenchmarkMode::Wasmtime => &WasmtimeBenchmark::new(wat_benchmark(program))?,
-            BenchmarkMode::CloneBareMetal => {
-                &CloneBenchmark::new(clone_benchmark(program), false, false, true, false)?
+            BenchmarkMode::CloneThread => {
+                &CloneBenchmark::new(clone_benchmark(program), false, false, false, true, false)?
+            }
+            BenchmarkMode::CloneProcess => {
+                &CloneBenchmark::new(clone_benchmark(program), true, false, false, true, false)?
             }
             BenchmarkMode::CloneNewNamespace => {
-                &CloneBenchmark::new(clone_benchmark(program), true, false, true, false)?
+                &CloneBenchmark::new(clone_benchmark(program), true, true, false, true, false)?
             }
             BenchmarkMode::CloneChRoot => {
-                &CloneBenchmark::new(clone_benchmark(program), true, true, true, false)?
+                &CloneBenchmark::new(clone_benchmark(program), true, true, true, true, false)?
             }
             BenchmarkMode::Clone => {
-                &CloneBenchmark::new(clone_benchmark(program), true, true, true, true)?
+                &CloneBenchmark::new(clone_benchmark(program), true, true, true, true, true)?
             }
         }
     };
@@ -225,6 +230,11 @@ fn main() -> anyhow::Result<()> {
         ("arca-lock", BenchmarkMode::ArcaLock),
         ("arca-serial", BenchmarkMode::ArcaSerial),
         ("wasmtime", BenchmarkMode::Wasmtime),
+        ("clone-thread", BenchmarkMode::CloneThread),
+        ("clone-process", BenchmarkMode::CloneProcess),
+        ("clone-new-namespace", BenchmarkMode::CloneNewNamespace),
+        ("clone-ch-root", BenchmarkMode::CloneChRoot),
+        ("clone", BenchmarkMode::Clone),
     ];
 
     let programs = &[
