@@ -93,6 +93,7 @@ pub trait SingleThreadedRuntime {
         &self,
         warmup: Duration,
         duration: Duration,
+        notup: &AtomicUsize,
         notready: &AtomicUsize,
         notdone: &AtomicUsize,
     ) -> usize;
@@ -103,10 +104,13 @@ impl<T: SimpleRuntime> SingleThreadedRuntime for T {
         &self,
         warmup: Duration,
         duration: Duration,
+        notup: &AtomicUsize,
         notready: &AtomicUsize,
         notdone: &AtomicUsize,
     ) -> usize {
         let mut state = self.setup();
+        notup.fetch_sub(1, Ordering::Release);
+        while notup.load(Ordering::Acquire) != 0 {}
         let warmup_start = Instant::now();
         while warmup_start.elapsed() < warmup {
             self.iterate(&mut state);
@@ -135,12 +139,13 @@ impl<T: SimpleRuntime> SingleThreadedRuntime for T {
 
 impl<T: SingleThreadedRuntime + Sync> Benchmark for T {
     fn bench(&self, parallel: usize, warmup: Duration, duration: Duration) -> Vec<usize> {
+        let notup = Box::new(AtomicUsize::new(parallel));
         let notready = Box::new(AtomicUsize::new(parallel));
         let notdone = Box::new(AtomicUsize::new(parallel));
         std::thread::scope(|s| {
             let mut handles = vec![];
             for _ in 0..parallel {
-                let handle = s.spawn(|| self.run(warmup, duration, &notready, &notdone));
+                let handle = s.spawn(|| self.run(warmup, duration, &notup, &notready, &notdone));
                 handles.push(handle);
             }
             handles.into_iter().map(|h| h.join().unwrap()).collect()

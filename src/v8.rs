@@ -98,6 +98,7 @@ impl SingleThreadedRuntime for V8Benchmark<SameIsolateSameContext> {
         &self,
         warmup: Duration,
         duration: Duration,
+        notup: &AtomicUsize,
         notready: &AtomicUsize,
         notdone: &AtomicUsize,
     ) -> usize {
@@ -115,6 +116,9 @@ impl SingleThreadedRuntime for V8Benchmark<SameIsolateSameContext> {
             let mut context_scope = v8::ContextScope::new(&mut handle_scope, context);
             body(global, &mut context_scope, module);
         };
+
+        notup.fetch_sub(1, Ordering::Release);
+        while notup.load(Ordering::Acquire) != 0 {}
 
         let warmup_start = Instant::now();
         while warmup_start.elapsed() < warmup {
