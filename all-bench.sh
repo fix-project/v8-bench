@@ -39,7 +39,8 @@ run_threads() {
 
 cargo build --release
 
-Benchs='v8 v8-isolate-per-call wasm2c-mmap wasm2c-bounds-checked clone-thread clone-process clone arca arca-serial arca-lock arca-shootdown'
+Benchs='v8 v8-isolate-per-call wasm2c-mmap wasm2c-bounds-checked clone-thread clone-process clone arca'
+ProcessBenchs='v8 v8-isolate-per-call wasm2c-mmap wasm2c-bounds-checked clone-thread clone-process clone'
 Programs='add-mem matmul64 jpeg'
 
 for i in {1..10}
@@ -50,15 +51,19 @@ do
   for program in ${Programs}; do
     mkdir -p $output/${program}
     for bench in ${Benchs}; do
-      echo "$i: $program + $bench"
+      echo "$i: $program + $bench (threads)"
 
       echo "parallel,iterations,duration_ns,debug" > $output/${program}/${bench}.csv
-      echo "parallel,iterations,duration_ns,debug" > $output/${program}/${bench}-process.csv
 
       echo "    1 thread"
       run_threads $program $bench 1 $output
       echo "    128 threads"
       run_threads $program $bench 128 $output
+    done
+    for bench in ${ProcessBenchs}; do
+      echo "$i: $program + $bench (processes)"
+
+      echo "parallel,iterations,duration_ns,debug" > $output/${program}/${bench}-process.csv
 
       echo "    1 process"
       run_processes $program $bench 1 $output

@@ -71,12 +71,15 @@ async fn kmain(argv: &[usize]) {
     let duration = Duration::from_nanos(duration as u64);
 
     let mut set = Vec::with_capacity(parallel);
+    let notcreated = Arc::new(AtomicUsize::new(parallel));
     let notready = Arc::new(AtomicUsize::new(parallel));
     let notdone = Arc::new(AtomicUsize::new(parallel));
+    // kernel::profile::begin();
     for _ in 0..parallel {
         let task = rt::spawn(run(
             warmup,
             duration,
+            notcreated.clone(),
             notready.clone(),
             notdone.clone(),
             lambda.clone(),
@@ -86,6 +89,8 @@ async fn kmain(argv: &[usize]) {
     for (x, y) in set.into_iter().zip(output.iter()) {
         y.store(x.await, Ordering::SeqCst);
     }
+    // kernel::profile::end();
+    // profile();
 }
 
 const TIMESLICE: Duration = Duration::from_millis(50);
@@ -106,16 +111,23 @@ async fn maybe_yield() {
 async fn run(
     warmup: Duration,
     duration: Duration,
+    notcreated: Arc<AtomicUsize>,
     notready: Arc<AtomicUsize>,
     notdone: Arc<AtomicUsize>,
     lambda: Lambda,
 ) -> usize {
-    let once = async || {
+    let once = async |duration: Duration| {
+        let start = kvmclock::time_since_boot();
         let lock = write_pt(&PT_LOCK).await;
         let lambda = core::hint::black_box(lambda.clone());
         core::mem::drop(lock);
+        let clone_end = kvmclock::time_since_boot();
+        let clone_time = clone_end - start;
+        if clone_time >= duration {
+            return 0;
+        }
         let thunk = lambda.apply(Value::Tree(vec![Value::Word(1), Value::Word(2)].into()));
-        let result = thunk.run_for(Duration::from_secs(1));
+        let result = thunk.run_for(duration - clone_time);
         let Value::Word(_) = result else {
             if let Value::Thunk(_) = result {
                 return 0;
@@ -126,18 +138,23 @@ async fn run(
         1
     };
 
+    notcreated.fetch_sub(1, Ordering::Release);
+    while notcreated.load(Ordering::Acquire) != 0 {
+        maybe_yield().await;
+    }
+
     let warmup_start = kvmclock::time_since_boot();
     while kvmclock::time_since_boot() - warmup_start < warmup {
-        once().await;
+        once(warmup).await;
     }
     notready.fetch_sub(1, Ordering::Release);
     while notready.load(Ordering::Acquire) != 0 {
-        once().await;
+        once(warmup).await;
     }
     let start = kvmclock::time_since_boot();
     let mut iters = 0;
     loop {
-        let success = once().await;
+        let success = once(duration).await;
         if kvmclock::time_since_boot() - start < duration {
             iters += success;
         } else {
@@ -146,7 +163,7 @@ async fn run(
     }
     notdone.fetch_sub(1, Ordering::Release);
     while notready.load(Ordering::Acquire) != 0 {
-        once().await;
+        once(warmup).await;
     }
     iters
 }
