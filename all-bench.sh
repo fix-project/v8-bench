@@ -41,7 +41,7 @@ cargo build --release
 
 Benchs='v8 v8-isolate-per-call wasm2c-mmap wasm2c-bounds-checked clone-thread clone-process clone arca arca-serial arca-shootdown arca-lock'
 ProcessBenchs='v8 v8-isolate-per-call wasm2c-mmap wasm2c-bounds-checked clone-thread clone-process clone'
-Programs='add-mem matmul64 jpeg'
+Programs='jpeg matmul64 add-mem'
 
 for i in {1..10}
 do
