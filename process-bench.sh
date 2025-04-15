@@ -5,8 +5,8 @@ mkdir -p data
 PARALLEL=${1:-$(nproc)}
 LOGTWO=`echo "l($PARALLEL) / l(2)" | bc -l | xargs -I{} echo "scale=0;{} / 1" | bc`
 
-Benchs='v8 wasm2c-mmap'
-Programs='add add-mem matmul64 matmul128 jpeg'
+Benchs='v8 wasm2c-mmap clone-thread clone-process clone'
+Programs='add-mem matmul64 jpeg'
 for program in ${Programs}; do
   mkdir -p data/${program}
   for bench in ${Benchs}; do
