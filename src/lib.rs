@@ -63,22 +63,12 @@ pub trait Benchmark {
 
     fn collect_data(
         &self,
-        max_parallel: usize,
+        parallel: usize,
         warmup: Duration,
         duration: Duration,
         run_as_process: bool,
     ) -> Vec<Datum> {
-        let mut data = vec![];
-        if run_as_process {
-            data.extend(self.experiment(max_parallel, warmup, duration, run_as_process))
-        } else {
-            let lg_max_parallel = max_parallel.ilog2();
-            for lg_parallel in 0..lg_max_parallel + 1 {
-                let parallel = 1 << lg_parallel;
-                data.extend(self.experiment(parallel, warmup, duration, run_as_process));
-            }
-        }
-        data
+        self.experiment(parallel, warmup, duration, run_as_process)
     }
 }
 pub trait SimpleRuntime {

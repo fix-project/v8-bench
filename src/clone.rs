@@ -1,7 +1,7 @@
 use crate::SimpleRuntime;
 use anyhow::Result;
 use clone3::{Clone3, CloneArgs};
-use libc::{__WALL, __WNOTHREAD, P_ALL, P_PID, WEXITED, siginfo_t, waitid};
+use libc::{__WALL, __WNOTHREAD, P_PID, WEXITED, siginfo_t, waitid};
 use libc::{
     CLONE_CHILD_CLEARTID, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID,
     CLONE_NEWUSER, CLONE_NEWUTS, CLONE_PARENT_SETTID, CLONE_VM, EAGAIN, FUTEX_BITSET_MATCH_ANY,
@@ -12,7 +12,7 @@ use libc::{
 };
 use libc::{chdir, chroot, clearenv, clone};
 use std::{
-    arch::naked_asm,
+    arch::global_asm,
     ffi::{c_char, c_int, c_void},
     fs::{File, create_dir, create_dir_all, exists},
     io::Error,
@@ -245,19 +245,18 @@ extern "C" fn clone3_threadenv(stackhead: *const StackHead) {
     }
 }
 
-#[naked]
-unsafe fn clone3_newthread(stack: *const CloneArgs) -> i64 {
-    unsafe {
-        naked_asm!(
-            "mov  rsi, 88",  // arg2 = sizeof(CloneArgs)
-            "mov  rdi, rdi", // arg1 = CloneArgs*
-            "mov  eax, 435", // SYS_clone3
-            "syscall",
-            "mov  rdi, rsp", // entry point argument
-            "ret",
-        );
-    }
+unsafe extern "C" {
+    fn clone3_newthread(stack: *const CloneArgs) -> i64;
 }
+global_asm!(
+    "clone3_newthread:",
+    "mov  rsi, 88",  // arg2 = sizeof(CloneArgs)
+    "mov  rdi, rdi", // arg1 = CloneArgs*
+    "mov  eax, 435", // SYS_clone3
+    "syscall",
+    "mov  rdi, rsp", // entry point argument
+    "ret",
+);
 
 struct MMapStack {
     addr: *mut c_void,
@@ -359,7 +358,7 @@ impl CloneBenchmark {
                         libc::exit((self.cb)(Box::as_mut_ptr(&mut state.arg) as *mut c_void))
                     },
                     Ok(res) => res,
-                    Err(errno) => errno.0,
+                    Err(errno) => -errno.0,
                 }
             } else {
                 let mut args = config.as_clone_args();

@@ -18,14 +18,14 @@ use clap::{ArgAction, Parser, Subcommand};
 #[clap(name = "Arca Benchmark")]
 #[command(version, about)]
 struct Args {
-    /// How many threads to use at maximum (default: the number of CPUs)
-    #[arg(short, long)]
-    parallel: Option<usize>,
+    /// How many threads to use
+    #[arg(short, long, default_value = "1")]
+    parallel: usize,
     /// How long to benchmark
-    #[arg(short, long, default_value = "1s")]
+    #[arg(short, long, default_value = "10s")]
     duration: humantime::Duration,
     /// How long to warm up
-    #[arg(short, long, default_value = "100ms")]
+    #[arg(short, long, default_value = "1ms")]
     warmup: humantime::Duration,
     /// Run as parallel process invocations
     #[arg(short, long, action=ArgAction::SetTrue)]
@@ -60,10 +60,6 @@ enum Commands {
         output: PathBuf,
     },
     Everything {
-        /// Output directory
-        directory: PathBuf,
-    },
-    Ablations {
         /// Output directory
         directory: PathBuf,
     },
@@ -203,24 +199,20 @@ fn run_benchmark(
         }
     };
 
-    let mut writer = if run_as_process {
-        output
-            .and_then(|path| {
-                OpenOptions::new()
-                    .write(true)
-                    .read(true)
-                    .append(true)
-                    .open(path)
-                    .ok()
-            })
-            .map(|file| {
-                csv::WriterBuilder::new()
-                    .has_headers(false)
-                    .from_writer(file)
-            })
-    } else {
-        output.map(csv::Writer::from_path).transpose()?
-    };
+    let mut writer = output
+        .and_then(|path| {
+            OpenOptions::new()
+                .write(true)
+                .read(true)
+                .append(true)
+                .open(path)
+                .ok()
+        })
+        .map(|file| {
+            csv::WriterBuilder::new()
+                .has_headers(false)
+                .from_writer(file)
+        });
 
     for datum in benchmark.collect_data(parallel, warmup, duration, run_as_process) {
         if let Some(ref mut writer) = writer {
@@ -234,16 +226,13 @@ fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let args = Args::parse();
 
-    let parallel = args.parallel.unwrap_or(0);
-    let cpus: usize = std::thread::available_parallelism().unwrap().into();
-    let parallel = if parallel == 0 { cpus } else { parallel };
+    let parallel = args.parallel;
     let warmup: std::time::Duration = args.warmup.into();
     let duration: std::time::Duration = args.duration.into();
     let run_as_process: bool = args.run_as_process.into();
 
     let benchmarks = &[
         ("v8", BenchmarkMode::V8),
-        ("v8-context-per-call", BenchmarkMode::V8ContextPerCall),
         ("v8-isolate-per-call", BenchmarkMode::V8IsolatePerCall),
         ("wasm2c-bounds-checked", BenchmarkMode::Wasm2cBoundsChecked),
         ("wasm2c-mmap", BenchmarkMode::Wasm2cMmap),
@@ -260,22 +249,9 @@ fn main() -> anyhow::Result<()> {
     ];
 
     let programs = &[
-        ("add", Program::Add),
         ("add-mem", Program::AddMem),
         ("matmul64", Program::MatMul64),
-        ("matmul128", Program::MatMul128),
         ("jpeg", Program::Jpeg),
-    ];
-
-    let ablations = &[
-        ("arca-lock", BenchmarkMode::ArcaLock),
-        ("arca-serial", BenchmarkMode::ArcaSerial),
-        ("arca-shootdown", BenchmarkMode::ArcaShootdown),
-    ];
-
-    let ablation_programs = &[
-        ("add-mem", Program::AddMem),
-        ("matmul128", Program::MatMul128),
     ];
 
     match args.command {
@@ -357,39 +333,6 @@ fn main() -> anyhow::Result<()> {
                 let time_after = benchmarks_per_program * programs_left * time * iterations;
                 log::info!("running program \"{prog}\"");
                 for (j, (bench, benchmark)) in benchmarks.iter().enumerate() {
-                    let benchmarks_left = benchmarks_per_program - j as u32;
-                    let time_left = time * (benchmarks_left * iterations) + time_after;
-                    log::info!(
-                        "running benchmark \"{bench}\" on program \"{prog}\"; {time_left:?} remaining"
-                    );
-                    let mut file = output.clone();
-                    file.push(bench);
-                    file.set_extension("csv");
-                    run_benchmark(
-                        parallel,
-                        warmup,
-                        duration,
-                        *benchmark,
-                        *program,
-                        run_as_process,
-                        Some(file),
-                    )?;
-                }
-            }
-        }
-        Commands::Ablations { directory } => {
-            std::fs::create_dir_all(&directory)?;
-            let iterations = parallel.ilog2();
-            let time = duration + warmup;
-            let benchmarks_per_program = ablations.len() as u32;
-            for (i, (prog, program)) in ablation_programs.iter().enumerate() {
-                let mut output = directory.clone();
-                output.push(prog);
-                std::fs::create_dir_all(&output)?;
-                let programs_left = (ablation_programs.len() - i) as u32;
-                let time_after = benchmarks_per_program * programs_left * time * iterations;
-                log::info!("running program \"{prog}\"");
-                for (j, (bench, benchmark)) in ablations.iter().enumerate() {
                     let benchmarks_left = benchmarks_per_program - j as u32;
                     let time_left = time * (benchmarks_left * iterations) + time_after;
                     log::info!(
