@@ -39,7 +39,7 @@ run_threads() {
 
 cargo build --release
 
-Benchs='v8 v8-isolate-per-call wasm2c-mmap wasm2c-bounds-checked clone-thread clone-process clone arca'
+Benchs='v8 v8-isolate-per-call wasm2c-mmap wasm2c-bounds-checked clone-thread clone-process clone arca arca-serial arca-shootdown arca-lock'
 ProcessBenchs='v8 v8-isolate-per-call wasm2c-mmap wasm2c-bounds-checked clone-thread clone-process clone'
 Programs='add-mem matmul64 jpeg'
 
@@ -51,6 +51,10 @@ do
   for program in ${Programs}; do
     mkdir -p $output/${program}
     for bench in ${Benchs}; do
+      if [[ "$program" == "jpeg" ]] && [[ "$bench" == "arca-"* ]]
+      then
+        continue
+      fi
       echo "$i: $program + $bench (threads)"
 
       echo "parallel,iterations,duration_ns,debug" > $output/${program}/${bench}.csv
