@@ -22,7 +22,7 @@ run_processes() {
   data=$4
   for ((j=0; j<$parallel; j++))
   do
-    sudo ./target/release/benchmark -d $DURATION -w $WARMUP -p $parallel -r run -o $data/${program}/${bench}-process.csv $bench $program > /dev/null 2>&1 &
+    sudo ./target/release/benchmark -d $DURATION -w $WARMUP -p $parallel -r run -o $data/${program}/${bench}-processes.csv $bench $program > /dev/null 2>&1 &
   done
   wait
   sleep 1
@@ -33,7 +33,7 @@ run_threads() {
   bench=$2
   parallel=$3
   data=$4
-  sudo ./target/release/benchmark -d $DURATION -w $WARMUP -p $parallel run -o $data/${program}/${bench}.csv $bench $program > /dev/null 2>&1
+  sudo ./target/release/benchmark -d $DURATION -w $WARMUP -p $parallel run -o $data/${program}/${bench}-threads.csv $bench $program > /dev/null 2>&1
   sleep 1
 }
 
@@ -57,7 +57,7 @@ do
       fi
       echo "$i: $program + $bench (threads)"
 
-      echo "parallel,iterations,duration_ns,debug" > $output/${program}/${bench}.csv
+      echo "parallel,iterations,duration_ns,debug" > $output/${program}/${bench}-threads.csv
 
       echo "    1 thread"
       run_threads $program $bench 1 $output
@@ -67,7 +67,7 @@ do
     for bench in ${ProcessBenchs}; do
       echo "$i: $program + $bench (processes)"
 
-      echo "parallel,iterations,duration_ns,debug" > $output/${program}/${bench}-process.csv
+      echo "parallel,iterations,duration_ns,debug" > $output/${program}/${bench}-processes.csv
 
       echo "    1 process"
       run_processes $program $bench 1 $output
