@@ -68,8 +68,6 @@ do
 
       echo "parallel,iterations,duration_ns,debug" > $output/${program}/${bench}-processes.csv
 
-      echo "    1 process"
-      run_processes $program $bench 1 $output
       echo "    128 processes"
       run_processes $program $bench 128 $output
     done
