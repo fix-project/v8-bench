@@ -12,7 +12,6 @@ fi
 DURATION=10s
 WARMUP=1s
 
-[ -d $OUTPUT ] && rm -r $OUTPUT
 mkdir -p $OUTPUT
 
 run_processes() {
@@ -39,9 +38,9 @@ run_threads() {
 
 cargo build --release
 
-Benchs='v8 v8-isolate-per-call wasm2c-mmap wasm2c-bounds-checked clone-thread clone-process clone arca arca-serial arca-shootdown arca-lock'
-ProcessBenchs='v8 v8-isolate-per-call wasm2c-mmap wasm2c-bounds-checked clone-thread clone-process clone'
-Programs='jpeg matmul64 add-mem'
+Benchs='arca clone v8 v8-isolate-per-call wasm2c-mmap wasm2c-bounds-checked clone-thread clone-process arca-shootdown arca-lock arca-serial'
+ProcessBenchs='clone v8 v8-isolate-per-call wasm2c-mmap wasm2c-bounds-checked clone-thread clone-process'
+Programs='add-mem matmul64 jpeg'
 
 for i in {1..10}
 do
